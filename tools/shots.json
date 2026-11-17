@@ -1,0 +1,10 @@
+{
+  "look": [
+    { "name": "road_east", "pose": { "x": -6, "y": 0.11, "z": 18.5, "heading": 80, "pitch": -8 } },
+    { "name": "road_east_run", "pose": { "x": -6, "y": 0.11, "z": 18.5, "heading": 80, "pitch": -10 }, "move": 6 },
+    { "name": "road_west", "pose": { "x": 6, "y": 0.11, "z": 18.0, "heading": 265, "pitch": -8 } },
+    { "name": "garden", "pose": { "x": -3.4, "y": 0.45, "z": 30.4, "heading": 10, "pitch": -6 } },
+    { "name": "pavement", "pose": { "x": -1, "y": 0.26, "z": 22.3, "heading": 95, "pitch": -8 } },
+    { "name": "kerb_close", "pose": { "x": 0, "y": 0.09, "z": 20.6, "heading": 110, "pitch": -4 } }
+  ]
+}

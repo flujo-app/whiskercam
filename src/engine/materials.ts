@@ -1,0 +1,226 @@
+import * as THREE from 'three';
+import { worldFragment, worldVertex } from './shaders/world.glsl';
+
+/** How a material is described in materials.json (written by the Blender pipeline). */
+export interface MatDesc {
+  kind: 'tile' | 'unique' | 'flat' | 'glass' | 'paint' | 'leaf' | 'roadpaint';
+  diff?: string;
+  nor?: string;
+  arm?: string;
+  size?: number;
+  color?: number[];
+  rough?: number;
+  metal?: number;
+  paint?: number[];
+  paint_wear?: number;
+  wear?: number;
+  tint?: number[];
+  alpha?: string;
+}
+
+/** Baked light for one chunk. */
+export interface LightRef {
+  id: string;
+  sun: THREE.Texture;
+  irr: THREE.Texture;
+  /** set for ground tiles: light map is addressed by world position */
+  planar?: { x0: number; z0: number; size: number };
+}
+
+const white = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+white.needsUpdate = true;
+const flatNormal = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+flatNormal.needsUpdate = true;
+const blackCube = new THREE.CubeTexture();
+
+/** Uniforms every surface shares (one object, referenced by all materials). */
+export function makeGlobals() {
+  return {
+    uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+    uSunColor: { value: new THREE.Color(10, 9.4, 8.5) },
+    uSkyUp: { value: new THREE.Color(0.25, 0.34, 0.54) },
+    uEnvMap: { value: blackCube as THREE.Texture },
+    uEnvMaxLod: { value: 0 },
+    uEnvIntensity: { value: 1 },
+    uFogColor: { value: new THREE.Color(0.6, 0.75, 1.0) },
+    uFogDensity: { value: 0.0012 },
+    uIrrRange: { value: 4 },
+    uShadowNear: { value: white as THREE.Texture },
+    uShadowFar: { value: white as THREE.Texture },
+    uShadowNearMat: { value: new THREE.Matrix4() },
+    uShadowFarMat: { value: new THREE.Matrix4() },
+    uShadowTexel: { value: new THREE.Vector2(1 / 2048, 1 / 2048) },
+    uShadowOn: { value: 0 },
+    uTime: { value: 0 },
+    uWind: { value: new THREE.Vector3(0.8, 0.6, 0.012) },
+  };
+}
+export type Globals = ReturnType<typeof makeGlobals>;
+
+export class Materials {
+  readonly globals: Globals;
+  private readonly cache = new Map<string, THREE.ShaderMaterial>();
+  private readonly textures = new Map<string, THREE.Texture>();
+  private readonly loader = new THREE.TextureLoader();
+  private readonly pending: Promise<unknown>[] = [];
+
+  constructor(
+    private readonly base: string,
+    private readonly descs: Record<string, MatDesc>,
+    private readonly maxAnisotropy: number,
+    globals?: Globals,
+  ) {
+    this.globals = globals ?? makeGlobals();
+  }
+
+  /** Resolves when every picture requested so far has arrived. */
+  async ready(): Promise<void> {
+    await Promise.all(this.pending);
+  }
+
+  texture(url: string, srgb: boolean, repeat = true): THREE.Texture {
+    const key = `${url}|${srgb}|${repeat}`;
+    let tex = this.textures.get(key);
+    if (!tex) {
+      tex = new THREE.Texture();
+      const t = tex;
+      t.flipY = false;
+      t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      t.wrapS = t.wrapT = repeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+      t.anisotropy = repeat ? this.maxAnisotropy : 1;
+      t.minFilter = repeat ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+      t.generateMipmaps = repeat;
+      this.textures.set(key, t);
+      this.pending.push(
+        this.loader.loadAsync(this.base + url).then((loaded) => {
+          t.image = loaded.image;
+          t.needsUpdate = true;
+        }),
+      );
+    }
+    return tex;
+  }
+
+  /** Material `name`, lit by the given baked light (or by probes when `light` is null). */
+  get(name: string, light: LightRef | null, opts: { instanced?: boolean } = {}): THREE.ShaderMaterial {
+    const key = `${name}|${light?.id ?? 'probe'}|${opts.instanced ? 'i' : ''}`;
+    const hit = this.cache.get(key);
+    if (hit) return hit;
+
+    const d: MatDesc = this.descs[name] ?? { kind: 'flat', color: [0.5, 0.5, 0.5], rough: 0.7 };
+    const defines: Record<string, string | number> = {};
+    const g = this.globals;
+    const u: Record<string, THREE.IUniform> = {
+      ...g,
+      uMapDiff: { value: white },
+      uMapNor: { value: flatNormal },
+      uMapArm: { value: white },
+      uColor: { value: new THREE.Color(1, 1, 1) },
+      uRough: { value: 1 },
+      uMetal: { value: 1 },
+      uNormalScale: { value: 1 },
+      uDetail: { value: 0.75 },
+      uAlphaTest: { value: 0.5 },
+      uUvScale: { value: new THREE.Vector2(1, 1) },
+      uLmXform: { value: new THREE.Vector4(1, 1, 0, 0) },
+      uLmSun: { value: white },
+      uLmIrr: { value: white },
+      uLmSunSize: { value: new THREE.Vector2(1024, 1024) },
+      uProbeIrrUp: { value: new THREE.Color(0.3, 0.4, 0.6) },
+      uProbeIrrDown: { value: new THREE.Color(0.2, 0.18, 0.15) },
+      uProbeSun: { value: 1 },
+      uPaintColor: { value: new THREE.Color(1, 1, 1) },
+      uPaintWear: { value: 0.5 },
+    };
+
+    if (light) {
+      u.uLmSun.value = light.sun;
+      u.uLmIrr.value = light.irr;
+      if (light.planar) {
+        defines.LM_PLANAR = 1;
+        const { x0, z0, size } = light.planar;
+        (u.uLmXform.value as THREE.Vector4).set(1 / size, 1 / size, -x0 / size, -z0 / size);
+      } else {
+        defines.LM_UV = 1;
+      }
+    } else {
+      defines.LM_PROBE = 1;
+    }
+
+    let transparent = false;
+    let side: THREE.Side = THREE.FrontSide;
+    const hasMaps = !!d.diff;
+    if (hasMaps) {
+      defines.USE_MAP = 1;
+      u.uMapDiff.value = this.texture(d.diff!, true);
+      if (d.nor) u.uMapNor.value = this.texture(d.nor, false);
+      if (d.arm) u.uMapArm.value = this.texture(d.arm, false);
+      else {
+        u.uRough.value = d.rough ?? 0.7;
+        u.uMetal.value = d.metal ?? 0;
+      }
+    } else {
+      const c = d.color ?? [0.5, 0.5, 0.5];
+      (u.uColor.value as THREE.Color).setRGB(c[0], c[1], c[2]);
+      u.uRough.value = d.rough ?? 0.6;
+      u.uMetal.value = d.metal ?? 0;
+    }
+    if (d.tint) (u.uColor.value as THREE.Color).setRGB(d.tint[0], d.tint[1], d.tint[2]);
+
+    switch (d.kind) {
+      case 'tile':
+        (u.uUvScale.value as THREE.Vector2).setScalar(1 / (d.size ?? 2));
+        defines.DETAIL = 1;
+        defines.MACRO = 1;
+        if (d.paint) {
+          defines.PAINT = 1;
+          (u.uPaintColor.value as THREE.Color).setRGB(d.paint[0], d.paint[1], d.paint[2]);
+          u.uPaintWear.value = d.paint_wear ?? 0.45;
+        }
+        break;
+      case 'paint':
+        defines.COAT = 1;
+        break;
+      case 'leaf':
+        defines.ALPHATEST = 1;
+        defines.DOUBLE_SIDED = 1;
+        defines.TRANSLUCENT = 1;
+        defines.WIND = 1;
+        defines.WIND_HEIGHT_SCALE = '1.0';
+        side = THREE.DoubleSide;
+        break;
+      case 'roadpaint':
+        defines.PAINT = 1;
+        defines.DECAL = 1;
+        (u.uPaintColor.value as THREE.Color).setRGB(d.color![0], d.color![1], d.color![2]);
+        u.uPaintWear.value = d.wear ?? 0.5;
+        transparent = true;
+        break;
+      default:
+        break;
+    }
+    if (d.alpha === 'clip') {
+      defines.ALPHATEST = 1;
+      defines.DOUBLE_SIDED = 1;
+      side = THREE.DoubleSide;
+    }
+
+    const mat = new THREE.ShaderMaterial({
+      name,
+      uniforms: u,
+      defines,
+      vertexShader: worldVertex,
+      fragmentShader: worldFragment,
+      side,
+      transparent,
+      depthWrite: !transparent,
+    });
+    if (d.kind === 'roadpaint') {
+      mat.polygonOffset = true;
+      mat.polygonOffsetFactor = -2;
+      mat.polygonOffsetUnits = -4;
+    }
+    this.cache.set(key, mat);
+    return mat;
+  }
+}

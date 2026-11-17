@@ -1,0 +1,13 @@
+node_modules/
+dist/
+# downloaded originals (free scans, re-fetchable with `npm run fetch`)
+assets_src/
+# intermediate Blender files, bakes and test renders
+build/
+# generated game assets (rebuilt by the pipeline, published with the site)
+public/assets/
+*.blend1
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
