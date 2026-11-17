@@ -19,11 +19,6 @@ export interface Controls {
   any: boolean;
 }
 
-export interface TouchLayout {
-  /** called when the on-screen stick should be drawn (null = hide) */
-  onStick?: (centre: { x: number; y: number } | null, knob: { x: number; y: number } | null) => void;
-}
-
 const DEAD = 0.18;
 const stick = (v: number): number => (Math.abs(v) < DEAD ? 0 : (v - Math.sign(v) * DEAD) / (1 - DEAD));
 
@@ -34,6 +29,8 @@ export class Input {
   mouseSensitivity = 0.11; // degrees per pixel
   touchSensitivity = 0.28;
   usingTouch = false;
+  /** called when the on-screen stick should be drawn (nulls = hide) */
+  onStick: ((centre: { x: number; y: number } | null, knob: { x: number; y: number } | null) => void) | null = null;
   private readonly down = new Set<string>();
   private readonly pressed = new Set<string>();
   private yaw = 0;
@@ -47,7 +44,7 @@ export class Input {
   private readonly virtual = new Set<string>();
   private padButtons: boolean[] = [];
 
-  constructor(private readonly target: HTMLElement, private readonly layout: TouchLayout = {}) {
+  constructor(private readonly target: HTMLElement) {
     addEventListener('keydown', (e) => {
       if (e.repeat) return;
       this.down.add(e.code);
@@ -114,7 +111,7 @@ export class Input {
         this.stickId = t.identifier;
         this.stickCentre = { x: t.clientX, y: t.clientY };
         this.stickVec = { x: 0, y: 0 };
-        this.layout.onStick?.(this.stickCentre, this.stickCentre);
+        this.onStick?.(this.stickCentre, this.stickCentre);
       } else if (this.lookId === null) {
         this.lookId = t.identifier;
         this.lookLast = { x: t.clientX, y: t.clientY };
@@ -135,7 +132,7 @@ export class Input {
           dy /= len;
         }
         this.stickVec = { x: dx, y: dy };
-        this.layout.onStick?.(this.stickCentre, { x: this.stickCentre.x + dx * r, y: this.stickCentre.y + dy * r });
+        this.onStick?.(this.stickCentre, { x: this.stickCentre.x + dx * r, y: this.stickCentre.y + dy * r });
       } else if (t.identifier === this.lookId) {
         this.yaw += (t.clientX - this.lookLast.x) * this.touchSensitivity;
         this.pitch -= (t.clientY - this.lookLast.y) * this.touchSensitivity * 0.5;
@@ -150,7 +147,7 @@ export class Input {
       if (t.identifier === this.stickId) {
         this.stickId = null;
         this.stickVec = { x: 0, y: 0 };
-        this.layout.onStick?.(null, null);
+        this.onStick?.(null, null);
       } else if (t.identifier === this.lookId) {
         this.lookId = null;
       }

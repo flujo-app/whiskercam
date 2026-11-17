@@ -68,7 +68,19 @@ async function main() {
         if (await convert(src, path.join(TEX_OUT, file), { size, kind })) made++;
         m[key] = `tex/${file}`;
       }
-    } else if (d.kind === 'unique' || d.kind === 'leaf') {
+    } else if (d.kind === 'leaf') {
+      // leaf picture with cut-out edges: keep a little alpha everywhere so browsers do not throw the colour away
+      const src = d.diff;
+      const file = `${path.basename(src).replace(/\.[^.]+$/, '')}.webp`;
+      const dst = path.join(TEX_OUT, file);
+      if (newer(src, dst)) {
+        const { data, info } = await sharp(src).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        for (let i = 3; i < data.length; i += 4) data[i] = Math.max(data[i], 16);
+        await sharp(data, { raw: info }).webp({ quality: 88, alphaQuality: 92, effort: 5 }).toFile(dst);
+        made++;
+      }
+      m.diff = `tex/${file}`;
+    } else if (d.kind === 'unique') {
       for (const [key, kind] of [['diff', 'color'], ['nor', 'normal'], ['arm', 'data']]) {
         if (!d[key]) continue;
         const src = d[key];
@@ -83,6 +95,16 @@ async function main() {
 
   // ---- light maps
   for (const chunk of world.chunks) {
+    if (!chunk.sun) {
+      // leaves carry their light in the mesh itself
+      const src = path.join(SRC, chunk.file);
+      const dst = path.join(OUT, chunk.file);
+      if (newer(src, dst)) {
+        await fs.copyFile(src, dst);
+        made++;
+      }
+      continue;
+    }
     const sunSrc = path.join(SRC, chunk.sun);
     const irrSrc = path.join(SRC, chunk.irr);
     chunk.sun = chunk.sun.replace(/\.png$/, '.webp');
@@ -105,9 +127,77 @@ async function main() {
     }
   }
 
+  // ---- one small light picture of the whole ground (left half: sky + bounce light, right half: sun)
+  // used by everything that stands on the ground without its own light map: weeds, grass, cats
+  const tiles = world.chunks.filter((c) => c.kind === 'ground');
+  if (tiles.length) {
+    const T = tiles[0].tile_size;
+    const px = 128;
+    const x0 = Math.min(...tiles.map((c) => c.tile_origin[0]));
+    const z0 = Math.min(...tiles.map((c) => c.tile_origin[1]));
+    const cols = Math.round((Math.max(...tiles.map((c) => c.tile_origin[0])) - x0) / T) + 1;
+    const rows = Math.round((Math.max(...tiles.map((c) => c.tile_origin[1])) - z0) / T) + 1;
+    const W = cols * px;
+    const H = rows * px;
+    const out = Buffer.alloc(W * 2 * H * 3);
+    const open = world.sky_irradiance_up.map((v) => Math.round(Math.sqrt(Math.min(1, v / Math.PI / world.irr_range)) * 255));
+    for (let i = 0; i < W * 2 * H; i++) {
+      const right = i % (W * 2) >= W;
+      out[i * 3] = right ? 255 : open[0];
+      out[i * 3 + 1] = right ? 255 : open[1];
+      out[i * 3 + 2] = right ? 255 : open[2];
+    }
+    for (const c of tiles) {
+      const cx = Math.round((c.tile_origin[0] - x0) / T) * px;
+      const cy = Math.round((c.tile_origin[1] - z0) / T) * px;
+      const irr = await sharp(path.join(SRC, c.irr.replace(/\.webp$/, '.png'))).removeAlpha().resize(px, px).raw().toBuffer();
+      const sun = await sharp(path.join(SRC, c.sun.replace(/\.webp$/, '.png'))).removeAlpha().resize(px, px).raw().toBuffer();
+      for (let y = 0; y < px; y++) {
+        for (let x = 0; x < px; x++) {
+          const s = (y * px + x) * 3;
+          const a = ((cy + y) * W * 2 + cx + x) * 3;
+          const b = ((cy + y) * W * 2 + W + cx + x) * 3;
+          out[a] = irr[s];
+          out[a + 1] = irr[s + 1];
+          out[a + 2] = irr[s + 2];
+          out[b] = out[b + 1] = out[b + 2] = sun[s];
+        }
+      }
+    }
+    await sharp(out, { raw: { width: W * 2, height: H, channels: 3 } }).webp({ lossless: true, effort: 4 }).toFile(path.join(OUT, 'ground_light.webp'));
+    world.ground_light = { file: 'ground_light.webp', x0, z0, w: cols * T, h: rows * T };
+    made++;
+  }
+
+  // ---- small plants drawn as copies
+  if (world.scatter) {
+    await fs.mkdir(path.join(OUT, 'scatter'), { recursive: true });
+    for (const model of Object.values(world.scatter)) {
+      const src = path.join(SRC, model.file);
+      const dst = path.join(OUT, model.file);
+      if (newer(src, dst)) {
+        await fs.copyFile(src, dst);
+        made++;
+      }
+    }
+  }
+
+  // ---- loose things
+  if (world.props) {
+    await fs.mkdir(path.join(OUT, 'props'), { recursive: true });
+    for (const model of Object.values(world.props.models)) {
+      const src = path.join(SRC, model.file);
+      const dst = path.join(OUT, model.file);
+      if (newer(src, dst)) {
+        await fs.copyFile(src, dst);
+        made++;
+      }
+    }
+  }
+
   // ---- everything else
-  for (const f of ['collision.json', 'collision.bin', 'sky.png']) {
-    await fs.copyFile(path.join(SRC, f), path.join(OUT, f));
+  for (const f of ['collision.json', 'collision.bin', 'sky.png', 'kinds.png']) {
+    if (fssync.existsSync(path.join(SRC, f))) await fs.copyFile(path.join(SRC, f), path.join(OUT, f));
   }
   await fs.writeFile(path.join(OUT, 'world.json'), JSON.stringify(world));
 

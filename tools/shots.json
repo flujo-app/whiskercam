@@ -1,12 +1,163 @@
 {
   "look": [
-    { "name": "road_east", "pose": { "x": -6, "y": 0.11, "z": 18.5, "heading": 80, "pitch": -8 } },
-    { "name": "road_west", "pose": { "x": 6, "y": 0.11, "z": 18.0, "heading": 265, "pitch": -8 } },
-    { "name": "pavement", "pose": { "x": -1, "y": 0.26, "z": 22.3, "heading": 95, "pitch": -8 } },
-    { "name": "cat_start", "cat": { "x": -3.4, "z": 30.4, "heading": 10 } },
-    { "name": "cat_trot", "cat": { "x": -6, "z": 18.5, "heading": 80 }, "sim": [{ "move": 1, "t": 1.5 }] },
-    { "name": "cat_run", "cat": { "x": -6, "z": 18.5, "heading": 80 }, "sim": [{ "move": 1, "sprint": true, "t": 1.6 }] },
-    { "name": "cat_run_north", "cat": { "x": 2, "z": 20.2, "heading": 20 }, "sim": [{ "move": 1, "sprint": true, "t": 1.1 }] },
-    { "name": "cat_jump", "cat": { "x": -6, "z": 18.5, "heading": 80 }, "sim": [{ "move": 1, "sprint": true, "t": 0.8 }, { "move": 1, "sprint": true, "jump": true, "t": 0.25 }] }
+    {
+      "name": "road_east",
+      "pose": {
+        "x": -6,
+        "y": 0.11,
+        "z": 18.5,
+        "heading": 80,
+        "pitch": -8
+      }
+    },
+    {
+      "name": "road_west",
+      "pose": {
+        "x": 6,
+        "y": 0.11,
+        "z": 18.0,
+        "heading": 265,
+        "pitch": -8
+      }
+    },
+    {
+      "name": "pavement",
+      "pose": {
+        "x": -1,
+        "y": 0.26,
+        "z": 22.3,
+        "heading": 95,
+        "pitch": -8
+      }
+    },
+    {
+      "name": "cat_start",
+      "cat": {
+        "x": -3.4,
+        "z": 30.4,
+        "heading": 10
+      }
+    },
+    {
+      "name": "cat_trot",
+      "cat": {
+        "x": -6,
+        "z": 18.5,
+        "heading": 80
+      },
+      "sim": [
+        {
+          "move": 1,
+          "t": 1.5
+        }
+      ]
+    },
+    {
+      "name": "cat_run",
+      "cat": {
+        "x": -6,
+        "z": 18.5,
+        "heading": 80
+      },
+      "sim": [
+        {
+          "move": 1,
+          "sprint": true,
+          "t": 1.6
+        }
+      ]
+    },
+    {
+      "name": "cat_run_north",
+      "cat": {
+        "x": 2,
+        "z": 20.2,
+        "heading": 20
+      },
+      "sim": [
+        {
+          "move": 1,
+          "sprint": true,
+          "t": 1.1
+        }
+      ]
+    },
+    {
+      "name": "cat_jump",
+      "cat": {
+        "x": -6,
+        "z": 18.5,
+        "heading": 80
+      },
+      "sim": [
+        {
+          "move": 1,
+          "sprint": true,
+          "t": 0.8
+        },
+        {
+          "move": 1,
+          "sprint": true,
+          "jump": true,
+          "t": 0.25
+        }
+      ]
+    },
+    {
+      "name": "lawn",
+      "pose": {
+        "x": -3.0,
+        "y": 0.22,
+        "z": 27.0,
+        "heading": 340,
+        "pitch": -10
+      }
+    },
+    {
+      "name": "lawn_sun",
+      "pose": {
+        "x": -4.0,
+        "y": 0.2,
+        "z": 25.5,
+        "heading": 200,
+        "pitch": -4
+      }
+    },
+    {
+      "name": "kerb_weeds",
+      "pose": {
+        "x": -2.0,
+        "y": 0.1,
+        "z": 20.5,
+        "heading": 70,
+        "pitch": -3
+      }
+    },
+    {
+      "name": "ui_title",
+      "cat": {
+        "x": -3.4,
+        "z": 30.4,
+        "heading": 10
+      },
+      "ui": true
+    },
+    {
+      "name": "ui_play",
+      "cat": {
+        "x": -6,
+        "z": 18.5,
+        "heading": 80
+      },
+      "play": true,
+      "sim": [
+        {
+          "move": 1,
+          "sprint": true,
+          "t": 5.2
+        }
+      ],
+      "ui": true
+    }
   ]
 }

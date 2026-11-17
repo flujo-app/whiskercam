@@ -19,7 +19,7 @@ from pathlib import Path
 import bmesh
 import bpy
 import numpy as np
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 from . import bake, geo, mat, paths, scene
 
@@ -142,21 +142,83 @@ def export_sky(sc: bpy.types.Scene, out_dir: Path) -> dict:
     return {"file": "sky.png", "range": peak}
 
 
+# ---------------------------------------------------------------- what kind of ground is where
+
+KINDS_PER_M = 4
+
+
+def export_kinds(regions, bounds, out_dir: Path) -> dict:
+    """Small map of the ground: red = lawn (the game grows grass there), green = soil beds."""
+    import shapely
+
+    x0, y0, x1, y1 = bounds
+    w, h = int((x1 - x0) * KINDS_PER_M), int((y1 - y0) * KINDS_PER_M)
+    xs = x0 + (np.arange(w) + 0.5) / KINDS_PER_M
+    ys = y0 + (np.arange(h) + 0.5) / KINDS_PER_M
+    gx, gy = np.meshgrid(xs, ys)
+    img = np.zeros((h, w, 3), dtype=np.float32)
+    for reg in regions:
+        channel = {"lawn": 0, "bed": 1}.get(reg.kind)
+        if channel is None:
+            continue
+        bx0, by0, bx1, by1 = reg.geom.bounds
+        i0, i1 = max(0, int((bx0 - x0) * KINDS_PER_M)), min(w, int((bx1 - x0) * KINDS_PER_M) + 1)
+        j0, j1 = max(0, int((by0 - y0) * KINDS_PER_M)), min(h, int((by1 - y0) * KINDS_PER_M) + 1)
+        if i1 <= i0 or j1 <= j0:
+            continue
+        inside = shapely.contains_xy(reg.geom, gx[j0:j1, i0:i1], gy[j0:j1, i0:i1])
+        img[j0:j1, i0:i1, channel] = np.maximum(img[j0:j1, i0:i1, channel], inside.astype(np.float32))
+    # row 0 of a Blender image is the bottom (south) edge, which is what _save_png expects
+    bake._save_png(img, out_dir / "kinds.png")
+    return {"file": "kinds.png", "x0": x0, "z0": -y1, "w": x1 - x0, "h": y1 - y0}
+
+
 # ---------------------------------------------------------------- geometry + materials
 
-def export_chunk(obj: bpy.types.Object, out_dir: Path) -> str:
+def export_chunk(obj: bpy.types.Object, out_dir: Path, colors: bool = False) -> str:
     geo.select_only([obj])
     path = out_dir / f"{obj.name}.glb"
     bpy.ops.export_scene.gltf(
         filepath=str(path), export_format="GLB", use_selection=True,
         # materials go out by name only (no pictures); the game rebuilds them from materials.json
-        export_materials="EXPORT", export_image_format="NONE", export_texcoords=True, export_normals=True, export_tangents=False,
-        export_yup=True, export_apply=False, export_extras=False, export_cameras=False, export_lights=False,
-        export_animations=False, export_skins=False, export_morph=False,
-        export_vertex_color="NONE",
+        export_materials="EXPORT", export_image_format="NONE", export_texcoords=True, export_normals=True,
+        export_tangents=False, export_yup=True, export_apply=False, export_extras=False, export_cameras=False,
+        export_lights=False, export_animations=False, export_skins=False, export_morph=False,
+        export_vertex_color="ACTIVE" if colors else "NONE", export_active_vertex_color_when_no_material=colors,
+        export_all_vertex_colors=False,
     )
     return path.name
 
+
+def _game_matrix(m) -> list[float]:
+    """Blender world matrix -> three.js matrix (column-major), for meshes exported with Y up."""
+    c = Matrix(((1, 0, 0, 0), (0, 0, 1, 0), (0, -1, 0, 0), (0, 0, 0, 1)))
+    g = c @ m @ c.inverted()
+    return [round(g[r][col], 5) for col in range(4) for r in range(4)]
+
+
+def export_scatter(sc: bpy.types.Scene, out_dir: Path) -> dict:
+    """Small plants are drawn as copies: write each distinct mesh once plus the list of placements."""
+    scatter_dir = paths.ensure(out_dir / "scatter")
+    groups: dict[str, list] = {}
+    for o in bake.static_objects(sc):
+        if o.get("wc_role") == "scatter" and o.get("wc_src"):
+            groups.setdefault(o["wc_src"], []).append(o)
+    table = {}
+    used = []
+    for key, objs in sorted(groups.items()):
+        mesh = objs[0].data
+        proto = bpy.data.objects.new("sc_" + key.replace("|", "_").replace(".", "_")[:48], mesh)
+        sc.collection.objects.link(proto)
+        used.append(proto)
+        file = "scatter/" + export_chunk(proto, scatter_dir)
+        table[key] = {"file": file, "plant": not objs[0].get("wc_solid"),
+                      "matrices": [v for o in objs for v in _game_matrix(o.matrix_world)]}
+    mats = material_table(used)
+    for proto in used:
+        bpy.data.objects.remove(proto)
+    print(f"[export] scatter: {len(table)} models, {sum(len(v['matrices']) // 16 for v in table.values())} copies")
+    return {"models": table, "materials": mats}
 
 def material_table(objs) -> dict:
     table = {}
@@ -173,6 +235,43 @@ def material_table(objs) -> dict:
     return table
 
 
+def export_props(sc: bpy.types.Scene, out_dir: Path) -> dict:
+    """Loose things the cat can knock about: one model file per kind plus where each one starts."""
+    from . import ph
+
+    loose = json.loads(sc.get("wc_loose", "[]"))
+    prop_dir = paths.ensure(out_dir / "props")
+    models: dict[str, dict] = {}
+    items = []
+    made = []
+    for item in loose:
+        key = item["model"] + (f"|{item['part']}" if item.get("part") else "")
+        if key not in models:
+            src = [o for o in ph.load(item["model"]) if not item.get("part") or item["part"].lower() in o.name.lower()]
+            lo, hi = ph.bounds(src)
+            pivot = Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, lo.z))
+            dups = []
+            for o in src:
+                d = o.copy()
+                d.data = o.data.copy()
+                sc.collection.objects.link(d)
+                d.matrix_world = Matrix.Translation(-pivot) @ o.matrix_world
+                dups.append(d)
+            joined = geo.join(dups, "prop_" + key.replace("|", "_").replace(".", "_")[:48])
+            geo.select_only([joined])
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            made.append(joined)
+            size = hi - lo
+            models[key] = {"file": "props/" + export_chunk(joined, prop_dir), "size": [round(size.x, 4), round(size.z, 4), round(size.y, 4)]}
+        items.append({"key": key, "pos": to_game(item["pos"]), "rot": item["rot"], "scale": item["scale"],
+                      "mass": item["mass"], "kind": item["kind"]})
+    mats = material_table(made)
+    for o in made:
+        bpy.data.objects.remove(o)
+    print(f"[export] props: {len(models)} models, {len(items)} loose things")
+    return {"models": models, "items": items, "materials": mats}
+
+
 def export_world(sc: bpy.types.Scene, name: str, manifest: dict, spawn, heading: float, extra: dict | None = None) -> Path:
     out_dir = paths.ensure(paths.BUILD / "export" / name)
     chunk_dir = paths.ensure(out_dir / "chunks")
@@ -182,9 +281,10 @@ def export_world(sc: bpy.types.Scene, name: str, manifest: dict, spawn, heading:
     chunks = []
     for o in objs:
         info = dict(by_name[o.name])
-        info["file"] = "chunks/" + export_chunk(o, chunk_dir)
-        info["sun"] = "lm/" + info["sun"]
-        info["irr"] = "lm/" + info["irr"]
+        info["file"] = "chunks/" + export_chunk(o, chunk_dir, colors=info["kind"] == "foliage")
+        if "sun" in info:
+            info["sun"] = "lm/" + info["sun"]
+            info["irr"] = "lm/" + info["irr"]
         if "tile_origin" in info:
             x0, y0 = info["tile_origin"]
             # game z = -blender y: the tile covers z from -(y0 + size) to -y0
@@ -193,7 +293,12 @@ def export_world(sc: bpy.types.Scene, name: str, manifest: dict, spawn, heading:
         hi = [max((o.matrix_world @ Vector(b))[i] for b in o.bound_box) for i in range(3)]
         info["bounds"] = [[lo[0], lo[2], -hi[1]], [hi[0], hi[2], -lo[1]]]
         chunks.append(info)
-    (out_dir / "materials.json").write_text(json.dumps(material_table(objs), indent=1))
+    scatter = export_scatter(sc, out_dir)
+    props = export_props(sc, out_dir)
+    table = material_table(objs)
+    table.update(scatter["materials"])
+    table.update(props["materials"])
+    (out_dir / "materials.json").write_text(json.dumps(table, indent=1))
     world = {
         "name": name,
         "version": 1,
@@ -202,6 +307,8 @@ def export_world(sc: bpy.types.Scene, name: str, manifest: dict, spawn, heading:
         "sky_irradiance_up": sky["sky_irradiance_up"],
         "irr_range": manifest["irr_range"],
         "chunks": chunks,
+        "scatter": scatter["models"],
+        "props": {"models": props["models"], "items": props["items"]},
         "spawn": {"pos": to_game(spawn), "heading": heading},
     }
     world.update(extra or {})

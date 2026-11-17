@@ -1,12 +1,20 @@
 import * as THREE from 'three';
+import { Audio } from '../engine/audio';
+import { Grass } from '../engine/grass';
 import { Input, type Controls } from '../engine/input';
 import { LensRig } from '../engine/lens';
 import { Physics } from '../engine/physics';
 import { Post } from '../engine/post';
+import { Recorder } from '../engine/recorder';
 import { LiveShadows, SHADOW_LAYER } from '../engine/shadows';
 import { Sky } from '../engine/sky';
 import { loadWorld, type LoadedWorld } from '../engine/world';
+import { StandInCat, type CatVisualFactory, type Coat } from './cats';
+import { Nav } from './nav';
 import { Player } from './player';
+import { Props } from './props';
+import { Session, type BrotherInfo, type RivalInfo } from './session';
+import { QUALITY_SCALE, type Settings } from './settings';
 
 export interface GameOptions {
   set: string;
@@ -30,9 +38,19 @@ export class Game {
   physics!: Physics;
   player!: Player;
   shadows!: LiveShadows;
+  grass: Grass | null = null;
+  props!: Props;
+  session!: Session;
+  /** how cats are drawn; swapped for the furry model once that is loaded */
+  catFactory!: CatVisualFactory;
   /** when set, the camera ignores the cat and sits here (test pictures, free look) */
   freeCam: { x: number; y: number; z: number; heading: number; pitch: number; roll: number } | null = null;
   time = 0;
+  paused = false;
+  readonly recorder: Recorder;
+  readonly audio = new Audio(`${import.meta.env.BASE_URL}audio/`);
+  /** called once per drawn frame, after the world has been updated */
+  onFrame: ((dt: number, c: Controls) => void) | null = null;
   private acc = 0;
   private last = 0;
   private running = false;
@@ -43,6 +61,7 @@ export class Game {
     this.scene.add(this.rig.rig);
     this.post = new Post(renderer, this.rig);
     this.input = new Input(canvas);
+    this.recorder = new Recorder(canvas);
   }
 
   static async create(canvas: HTMLCanvasElement, opts: GameOptions): Promise<Game> {
@@ -69,17 +88,76 @@ export class Game {
     const sky = new Sky(game.world.materials.globals);
     await sky.load(renderer, game.world.base + game.world.info.sky.file, game.world.info.sky.range);
     game.scene.add(game.world.group, sky.mesh);
+    if (game.world.info.kinds) {
+      game.grass = new Grass(game.world.materials.globals);
+      await game.grass.load(game.world.base + game.world.info.kinds.file, game.world.info.kinds);
+      game.scene.add(game.grass.mesh);
+    }
     say(0.9, 'Sharpening claws');
     game.physics = await Physics.create(game.world.base);
     game.shadows = new LiveShadows(game.world.materials.globals);
+    game.props = await Props.create(game.world, game.physics, game.scene);
     game.player = new Player(game.physics);
     const [sx, sy, sz] = game.world.info.spawn.pos;
     game.player.place(sx, sy, sz, game.world.info.spawn.heading);
     game.addStandIn();
+    game.catFactory = (coat: Coat, name: string) => new StandInCat(game.world.materials, coat, name);
+    game.newSession();
     say(1, 'Ready');
     return game;
   }
 
+  /** Fresh cats, fresh score: a new run waiting on the title screen. */
+  newSession(): void {
+    const info = this.world.info;
+    const nav = new Nav(info.nav ?? { nodes: [[0, 0]], edges: [], ring: [0], home: 0 });
+    const brother = (info.brother ?? { name: 'Rocket', coat: 'tabby', pos: [this.player.x + 1, this.player.z - 1], facing: 0 }) as BrotherInfo;
+    if (this.session) {
+      this.scene.remove(this.session.brother.visual.root);
+      for (const r of this.session.rivals) this.scene.remove(r.npc.visual.root);
+    }
+    this.session = new Session(this.player, this.physics, nav, this.props, this.world.groundLight, this.catFactory, this.scene, brother, (info.rivals ?? []) as RivalInfo[]);
+  }
+
+  /** Take over the player's choices (called at start and whenever a setting changes). */
+  applySettings(s: Settings): void {
+    const q = QUALITY_SCALE[s.quality] ?? 1;
+    if (Math.abs(q - this.opts.quality) > 1e-3 && !this.opts.size) {
+      this.opts.quality = q;
+      this.layout();
+    }
+    this.input.mouseSensitivity = 0.11 * s.sensitivity;
+    this.input.touchSensitivity = 0.28 * s.sensitivity;
+    this.player.motion = s.motion;
+    this.audio.setVolume(s.volume);
+  }
+
+  /** Leave the title screen: the cat can move, the battery starts to drain. */
+  beginRun(s: Settings): void {
+    this.paused = false;
+    this.session.start();
+    this.post.cut();
+    if (this.opts.manual) return;
+    // sound may only start from a click; the clip recorder waits for it so the file gets a sound track
+    void this.audio.unlock().then(() => {
+      this.audio.setVolume(s.volume);
+      this.audio.event('record');
+      if (s.record) this.recorder.start(this.audio.stream);
+    });
+  }
+
+  /** Everything back to the start: cat on the deck, pots on their ledges, no score. */
+  resetRun(): void {
+    this.recorder.discard();
+    const [sx, sy, sz] = this.world.info.spawn.pos;
+    this.player.place(sx, sy, sz, this.world.info.spawn.heading);
+    this.player.control = 1;
+    this.player.pullBack = 0;
+    this.player.tiltUp = 0;
+    this.props.reset();
+    this.newSession();
+    this.post.cut();
+  }
   /** A rough cat shape that only exists in the shadow pass, until the real cat model is loaded. */
   private addStandIn(): void {
     const mat = new THREE.MeshBasicMaterial();
@@ -135,6 +213,10 @@ export class Game {
     this.time += STEP;
     this.player.update(STEP, c);
     this.physics.step();
+    this.props.update(STEP);
+    this.session.update(STEP, c);
+    for (const s of this.session.sfx.splice(0, this.session.sfx.length)) this.audio.event(s.name, s);
+    this.audio.update(this.player.camX, this.player.camZ, this.player.camHeading, this.player.speed, this.session.active ? this.player.idle : 0, STEP);
     const g = this.world.materials.globals;
     g.uTime.value = this.time;
   }
@@ -152,6 +234,8 @@ export class Game {
     }
     this.standIn.position.set(p.x, p.y, p.z);
     this.standIn.rotation.y = -THREE.MathUtils.degToRad(p.heading);
+    this.grass?.update(this.rig.rig.position);
+    this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z);
     this.renderer.info.reset();
     this.shadows.render(this.renderer, this.scene, this.focus);
     this.post.render(this.scene, dt);
@@ -179,6 +263,8 @@ export class Game {
       this.last = now;
       this.acc += dt;
       const c = this.input.poll();
+      const pausePressed = c.pause;
+      if (this.paused) this.acc = 0;
       let steps = 0;
       while (this.acc >= STEP && steps < 5) {
         this.update(c);
@@ -190,7 +276,9 @@ export class Game {
         steps++;
       }
       if (steps === 5) this.acc = 0;
-      this.render(dt);
+      this.render(this.paused ? 0 : dt);
+      c.pause = pausePressed;
+      this.onFrame?.(dt, c);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);

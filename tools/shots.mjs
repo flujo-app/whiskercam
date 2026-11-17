@@ -74,12 +74,19 @@ for (const s of shots) {
       wc.pose(null);
       wc.place(shot.cat.x, shot.cat.y ?? 0.6, shot.cat.z, shot.cat.heading ?? 0);
       wc.step(40);
+      if (shot.play) wc.play();
       for (const seg of shot.sim ?? []) wc.sim(seg, seg.t);
+    }
+    if (shot.ui) {
+      wc.hud.place(document.getElementById('view').getBoundingClientRect());
+      wc.hud.update(wc.game.session, 1 / 60, false);
+      return null;
     }
     return wc.shot();
   }, s);
   const file = path.join(outDir, `${set}_${s.name}.jpg`);
-  await fs.writeFile(file, Buffer.from(dataUrl.split(',')[1], 'base64'));
+  if (dataUrl) await fs.writeFile(file, Buffer.from(dataUrl.split(',')[1], 'base64'));
+  else await page.screenshot({ path: file, type: 'jpeg', quality: 90 }); // with the on-screen display
   const stats = await page.evaluate(() => window.__wc.stats());
   console.log(`${s.name}: ${stats.calls} draw calls, ${stats.triangles} triangles`);
 }

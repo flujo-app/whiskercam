@@ -39,6 +39,15 @@ export class Player {
   onLand: ((force: number) => void) | null = null;
   onJump: (() => void) | null = null;
 
+  /** extra camera motion set from outside (duels): metres pulled back, degrees tilted up, shake strength 0..1 */
+  pullBack = 0;
+  tiltUp = 0;
+  shake = 0;
+  /** 0..1: how much of the stride bob and shake reaches the camera (comfort setting) */
+  motion = 1;
+  /** seconds in the air during the current jump (0 on the ground) */
+  airTime = 0;
+
   /** camera pose (what the lens rig is set to) */
   camX = 0;
   camY = 0;
@@ -53,7 +62,8 @@ export class Player {
   private lean = 0;
   private land = 0; // dip after a landing, decays
   private landVel = 0;
-  private idle = 0;
+  /** seconds the cat has been standing still */
+  idle = 0;
   private lastFoot = -1;
   private fallSpeed = 0;
   private time = 0;
@@ -70,6 +80,12 @@ export class Player {
     this.lookPitch = 0;
     this.lookYaw = 0;
     this.updateCamera(0, 0);
+  }
+
+  /** Slide to a spot without walking there (lining up for a duel). Keeps the paws on the ground. */
+  glide(x: number, z: number): void {
+    const ground = this.physics.groundBelow(x, this.body.y + 0.5, z, 2);
+    this.body.teleport(x, ground ? ground.y : this.body.feetY, z);
   }
 
   get x(): number {
@@ -133,6 +149,7 @@ export class Player {
       this.speed = smooth(this.speed, 0, 9, dt);
     }
     this.airborne = !body.grounded;
+    this.airTime = this.airborne ? this.airTime + dt : 0;
     if (body.grounded && !wasGrounded) {
       const force = clamp(-this.fallSpeed / 6, 0.15, 1);
       this.landVel -= force * 1.6;
@@ -204,13 +221,24 @@ export class Player {
     const idlePitch = (3 + Math.sin(this.time * 0.31) * 3) * looking;
 
     const basePitch = lerp(-3, -9, run) - 7 * this.crouch;
-    this.camPitch = basePitch + this.lookPitch + pitchStride + idlePitch + this.land * 26 + (this.airborne ? body.vy * 1.3 : 0);
-    this.camRoll = rollStride + this.lean;
-    this.camHeading = this.heading + yawStride + this.lookYaw;
+    const m = 0.25 + 0.75 * this.motion;
+    this.camPitch = basePitch + this.lookPitch + pitchStride * m + idlePitch + this.land * 26 * m + (this.airborne ? body.vy * 1.3 : 0);
+    this.camRoll = (rollStride + this.lean) * m;
+    this.camHeading = this.heading + yawStride * m + this.lookYaw;
+
+    // knocks and scuffles: a quick random jolt that dies away
+    if (this.shake > 0.001) {
+      const s = this.shake * (0.3 + 0.7 * this.motion);
+      this.camPitch += Math.sin(this.time * 71.3) * 3.2 * s;
+      this.camRoll += Math.sin(this.time * 53.7 + 1.3) * 4.5 * s;
+      this.camHeading += Math.sin(this.time * 61.1 + 2.1) * 2.6 * s;
+      this.shake = dt > 0 ? this.shake * Math.exp(-dt * 9) : this.shake;
+    }
+    this.camPitch += this.tiltUp;
 
     const h = this.heading * DEG;
     // the collar sits a hand's width ahead of the shoulders
-    const ahead = 0.07 + Math.sin(a) * 0.012 * galloping;
+    const ahead = 0.07 + Math.sin(a) * 0.012 * galloping - this.pullBack;
     this.camX = body.x + Math.sin(h) * ahead;
     this.camZ = body.z - Math.cos(h) * ahead;
     this.camY = body.feetY + Math.max(0.045, height);

@@ -51,6 +51,8 @@ export function makeGlobals() {
     uShadowFarMat: { value: new THREE.Matrix4() },
     uShadowTexel: { value: new THREE.Vector2(1 / 2048, 1 / 2048) },
     uShadowOn: { value: 0 },
+    uGroundLight: { value: white as THREE.Texture },
+    uGroundXform: { value: new THREE.Vector4(1, 1, 0, 0) },
     uTime: { value: 0 },
     uWind: { value: new THREE.Vector3(0.8, 0.6, 0.012) },
   };
@@ -101,12 +103,33 @@ export class Materials {
     return tex;
   }
 
-  /** Material `name`, lit by the given baked light (or by probes when `light` is null). */
-  get(name: string, light: LightRef | null, opts: { instanced?: boolean } = {}): THREE.ShaderMaterial {
-    const key = `${name}|${light?.id ?? 'probe'}|${opts.instanced ? 'i' : ''}`;
+  /**
+   * Material `name`, lit by the given baked light map. Without one, `mode` says where light comes from:
+   * 'vertex' (baked into the mesh), 'ground' (the ground light picture) or 'probe' (set per object).
+   */
+  get(name: string, light: LightRef | null, opts: { mode?: 'probe' | 'ground' | 'vertex'; plant?: boolean } = {}): THREE.ShaderMaterial {
+    const mode = opts.mode ?? 'probe';
+    const plant = opts.plant ?? true;
+    const key = `${name}|${light?.id ?? mode}|${plant ? 'p' : 's'}`;
     const hit = this.cache.get(key);
     if (hit) return hit;
+    const mat = this.build(name, light, mode, plant);
+    this.cache.set(key, mat);
+    return mat;
+  }
 
+  /** A material of its own for one moving object (its light values are set per object, see setProbe). */
+  fresh(name: string): THREE.ShaderMaterial {
+    return this.build(name, null, 'probe', false);
+  }
+
+  /** A material of its own made from an ad-hoc description (stand-ins, effects). Lit per object like `fresh`. */
+  custom(name: string, desc: MatDesc): THREE.ShaderMaterial {
+    this.descs[name] = desc;
+    return this.build(name, null, 'probe', false);
+  }
+
+  private build(name: string, light: LightRef | null, mode: 'probe' | 'ground' | 'vertex', plant: boolean): THREE.ShaderMaterial {
     const d: MatDesc = this.descs[name] ?? { kind: 'flat', color: [0.5, 0.5, 0.5], rough: 0.7 };
     const defines: Record<string, string | number> = {};
     const g = this.globals;
@@ -143,6 +166,10 @@ export class Materials {
       } else {
         defines.LM_UV = 1;
       }
+    } else if (mode === 'vertex') {
+      defines.LM_VERTEX = 1;
+    } else if (mode === 'ground') {
+      defines.LM_GROUND = 1;
     } else {
       defines.LM_PROBE = 1;
     }
@@ -183,10 +210,10 @@ export class Materials {
         break;
       case 'leaf':
         defines.ALPHATEST = 1;
-        defines.DOUBLE_SIDED = 1;
         defines.TRANSLUCENT = 1;
+        defines.KEEP_NORMAL = 1; // cards are lit with the hedge's outward direction on both faces
         defines.WIND = 1;
-        defines.WIND_HEIGHT_SCALE = '1.0';
+        defines.WIND_HEIGHT_SCALE = '0.6';
         side = THREE.DoubleSide;
         break;
       case 'roadpaint':
@@ -199,9 +226,15 @@ export class Materials {
       default:
         break;
     }
+    if (mode === 'ground' && d.kind === 'unique' && plant) {
+      // small scanned plants: thin leaves seen from both sides, moving a little in the wind
+      defines.TRANSLUCENT = 1;
+      defines.WIND = 1;
+      defines.WIND_HEIGHT_SCALE = '4.0';
+      side = THREE.DoubleSide;
+    }
     if (d.alpha === 'clip') {
       defines.ALPHATEST = 1;
-      defines.DOUBLE_SIDED = 1;
       side = THREE.DoubleSide;
     }
 
@@ -220,7 +253,28 @@ export class Materials {
       mat.polygonOffsetFactor = -2;
       mat.polygonOffsetUnits = -4;
     }
-    this.cache.set(key, mat);
     return mat;
   }
+}
+
+/** Light values for one moving object, from a sample of the ground light picture. */
+export function setProbe(
+  mat: THREE.ShaderMaterial,
+  sample: { r: number; g: number; b: number; sun: number },
+  globals: Globals,
+  groundAlbedo = 0.16,
+): void {
+  const up = mat.uniforms.uProbeIrrUp.value as THREE.Color;
+  const down = mat.uniforms.uProbeIrrDown.value as THREE.Color;
+  up.setRGB(sample.r, sample.g, sample.b);
+  // light thrown back up by the ground: what lights a belly, a chin, the underside of a pot
+  const sun = globals.uSunColor.value;
+  const el = Math.max(0.05, globals.uSunDir.value.y);
+  const k = (sample.sun * el) / Math.PI;
+  down.setRGB(
+    groundAlbedo * (sample.r + sun.r * k),
+    groundAlbedo * (sample.g + sun.g * k),
+    groundAlbedo * (sample.b + sun.b * k),
+  );
+  mat.uniforms.uProbeSun.value = sample.sun;
 }

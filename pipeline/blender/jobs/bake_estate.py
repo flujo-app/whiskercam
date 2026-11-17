@@ -23,7 +23,7 @@ def main(args: list[str]) -> None:
     out_dir = paths.ensure(paths.BUILD / "export" / opt.name)
     export.export_collision(sc, out_dir)          # before objects get joined into chunks
     manifest = bake.bake_scene(sc, opt.name, (P.EST[0], P.EST[1]))
-    export.export_world(sc, opt.name, manifest, P.START, P.START_HEADING)
+    export.export_world(sc, opt.name, manifest, P.START, P.START_HEADING, extra=P.game_info(paths.ensure(paths.BUILD / "export" / opt.name)))
     lm = paths.ensure(out_dir / "lm")
     for f in (paths.BUILD / "bake" / opt.name).glob("*.png"):
         shutil.copy2(f, lm / f.name)

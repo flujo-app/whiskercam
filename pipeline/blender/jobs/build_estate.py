@@ -37,3 +37,8 @@ def main(args: list[str]) -> None:
         render.catcam(sc, f"{opt.name}_cat_start", (sx, sy, P.Z_DECK + 0.12), P.START_HEADING, samples=48)
         render.catcam(sc, f"{opt.name}_cat_road", (-2.0, -19.5, 0.10), 75.0, samples=48)
         render.still(sc, f"{opt.name}_eye", (-12.0, -26.0, 6.0), (2.0, -17.0, 0.5), lens=20, samples=48)
+        render.catcam(sc, f"{opt.name}_cat_bins", (-44.0, 9.5, 0.26), 265.0, samples=48)
+        render.catcam(sc, f"{opt.name}_cat_plaza", (9.0, 1.5, 0.26), 80.0, samples=48)
+        render.catcam(sc, f"{opt.name}_cat_park", (39.5, 3.0, 0.12), 100.0, samples=48)
+        render.catcam(sc, f"{opt.name}_cat_garden", (-4.0, -27.5, 0.24), 200.0, samples=48)
+        render.catcam(sc, f"{opt.name}_cat_gate", (-44.0, 0.5, 0.12), 268.0, samples=48)

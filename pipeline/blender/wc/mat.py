@@ -38,11 +38,11 @@ TILES: dict[str, dict] = {
     "concrete_wall": {"ph": "concrete_wall_008"},
     "concrete_dirty": {"ph": "dirty_concrete"},
     # walls
-    "plaster_white": {"ph": "white_plaster_02"},
-    "plaster_yellow": {"ph": "yellow_plaster"},
+    "plaster_white": {"ph": "white_plaster_02", "tint": (2.1, 2.1, 2.15)},
+    "plaster_yellow": {"ph": "yellow_plaster", "tint": (1.6, 1.6, 1.5)},
     "plaster_painted": {"ph": "painted_plaster_wall"},
     "plaster_grey": {"ph": "grey_plaster_02"},
-    "facade_tiles": {"ph": "rectangular_facade_tiles"},
+    "facade_tiles": {"ph": "rectangular_facade_tiles", "tint": (3.4, 3.3, 3.1)},
     "facade_concrete_tiles": {"ph": "concrete_tile_facade"},
     "block_wall": {"ph": "concrete_block_wall"},
     "bricks_white": {"ph": "white_bricks"},
@@ -60,7 +60,7 @@ TILES: dict[str, dict] = {
     "planks_weathered": {"ph": "weathered_planks"},
     "planks_grey": {"ph": "wood_planks_grey"},
     # ground
-    "grass": {"ph": "forrest_ground_01"},
+    "grass": {"ph": "forrest_ground_01", "tint": (0.5, 0.74, 0.42)},
     "grass_leafy": {"ph": "leafy_grass"},
     "grass_sparse": {"ph": "sparse_grass"},
     "dirt": {"ph": "park_dirt"},
