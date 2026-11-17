@@ -140,7 +140,7 @@ export class Grass {
   private info: KindsInfo | null = null;
 
   /** `patch` = edge length of the grassy square around the camera, `spacing` = distance between tufts. */
-  constructor(globals: Globals, patch = 13, spacing = 0.085, bladesPerTuft = 8) {
+  constructor(globals: Globals, patch = 11, spacing = 0.095, bladesPerTuft = 7) {
     const n = Math.floor(patch / spacing);
     const realPatch = n * spacing;
     const verts = bladesPerTuft * 5;

@@ -139,7 +139,7 @@ export class Player {
 
     // ---- move through the world
     if (c.jump && k > 0.5 && body.grounded && this.crouch < 0.3) {
-      body.jump(4.4 + Math.min(Math.abs(this.speed), SPEED.run) * 0.12);
+      body.jump(6.1 + Math.min(Math.abs(this.speed), SPEED.run) * 0.06);   // about 1.2 m high: bonnets, low walls, bins
       this.onJump?.();
     }
     const h = this.heading * DEG;

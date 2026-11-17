@@ -338,6 +338,9 @@ export class Audio {
           else this.burst(5200, 0.5, 0.6, 0.25 * g);
         }
         break;
+      case 'wings':
+        if (!this.play('wings', opts)) for (let i = 0; i < 6; i++) setTimeout(() => this.burst(1400, 1.5, 0.05, 0.12 * g), i * 70);
+        break;
       case 'tag':
         this.play('chirp', { gain: 0.8 });
         this.tone(880, 0.12, 0.08, 'triangle');

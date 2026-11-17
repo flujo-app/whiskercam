@@ -11,7 +11,29 @@ const bootFill = document.getElementById('boot-fill') as HTMLElement;
 const bootText = document.getElementById('boot-text') as HTMLElement;
 const boot = document.getElementById('boot') as HTMLElement;
 
+/** Can this browser draw the game at all? Returns a plain-language reason when it cannot. */
+function unsupported(): string | null {
+  const probe = document.createElement('canvas').getContext('webgl2');
+  if (!probe) return 'This browser cannot show the game: it needs WebGL 2. A current Chrome, Edge, Firefox or Safari will work.';
+  if (!probe.getExtension('EXT_color_buffer_float') && !probe.getExtension('EXT_color_buffer_half_float')) {
+    return 'This device’s graphics cannot show the game (no high-range colour buffers). Try another browser or device.';
+  }
+  return null;
+}
+
 async function start(): Promise<void> {
+  const reason = unsupported();
+  if (reason) {
+    bootText.textContent = reason;
+    (bootFill.parentElement as HTMLElement).style.display = 'none';
+    return;
+  }
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    boot.classList.remove('done');
+    (bootFill.parentElement as HTMLElement).style.display = 'none';
+    bootText.textContent = 'The graphics card dropped the game. Reload the page to carry on.';
+  });
   const settings = loadSettings();
   const manual = params.has('manual');
   const touchDevice = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -178,6 +200,17 @@ async function start(): Promise<void> {
       debugCat.setLight(game.world.groundLight.sample(x, z, { r: 0, g: 0, b: 0, sun: 1 }));
       debugCat.update(debugLook, 1 / 60);
       return 'ok';
+    },
+    /** draw `n` frames as fast as possible and report the time per frame (waits for the graphics card) */
+    bench(n = 120) {
+      const gl = game.renderer.getContext();
+      const px = new Uint8Array(4);
+      game.sim({}, 10 / 60);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const t0 = performance.now();
+      game.sim({ turn: 0.4 }, n / 60);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return (performance.now() - t0) / n;
     },
     stats() {
       const r = game.renderer.info.render;

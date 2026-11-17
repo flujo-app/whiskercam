@@ -10,6 +10,10 @@ import fssync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { NodeIO, PropertyType } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { dedup, meshopt, prune } from '@gltf-transform/functions';
+import { MeshoptEncoder } from 'meshoptimizer';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -29,6 +33,22 @@ const HERO = new Set([
   'asphalt_01', 'asphalt_04', 'weathered_planks', 'tarred_gravel', 'concrete_pavers', 'square_concrete_pavers', 'concrete_floor_worn_001',
   'brushed_concrete', 'forrest_ground_01', 'wood_chips', 'wood_floor_deck', 'gravel_floor_02',
 ]);
+
+await MeshoptEncoder.ready;
+const gltfIO = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
+
+/** Copy a model, squeezing its geometry (about a fifth of the size; the game unpacks it while loading). */
+async function packGlb(src, dst) {
+  const doc = await gltfIO.read(src);
+  doc.setLogger({ debug() {}, info() {}, warn() {}, error: console.error });
+  await doc.transform(
+    // materials are told apart by name only, so they must not be merged
+    dedup({ propertyTypes: [PropertyType.ACCESSOR, PropertyType.MESH] }),
+    prune({ propertyTypes: [PropertyType.ACCESSOR, PropertyType.BUFFER], keepAttributes: true, keepLeaves: true }),
+    meshopt({ encoder: MeshoptEncoder, level: 'medium', quantizePosition: 16, quantizeNormal: 10, quantizeTexcoord: 16, quantizeColor: 8 }),
+  );
+  await gltfIO.write(dst, doc);
+}
 
 const newer = (src, dst) => force || !fssync.existsSync(dst) || fssync.statSync(src).mtimeMs > fssync.statSync(dst).mtimeMs;
 
@@ -100,7 +120,7 @@ async function main() {
       const src = path.join(SRC, chunk.file);
       const dst = path.join(OUT, chunk.file);
       if (newer(src, dst)) {
-        await fs.copyFile(src, dst);
+        await packGlb(src, dst);
         made++;
       }
       continue;
@@ -122,7 +142,7 @@ async function main() {
     const src = path.join(SRC, chunk.file);
     const dst = path.join(OUT, chunk.file);
     if (newer(src, dst)) {
-      await fs.copyFile(src, dst);
+      await packGlb(src, dst);
       made++;
     }
   }
@@ -176,7 +196,7 @@ async function main() {
       const src = path.join(SRC, model.file);
       const dst = path.join(OUT, model.file);
       if (newer(src, dst)) {
-        await fs.copyFile(src, dst);
+        await packGlb(src, dst);
         made++;
       }
     }
@@ -189,7 +209,7 @@ async function main() {
       const src = path.join(SRC, model.file);
       const dst = path.join(OUT, model.file);
       if (newer(src, dst)) {
-        await fs.copyFile(src, dst);
+        await packGlb(src, dst);
         made++;
       }
     }

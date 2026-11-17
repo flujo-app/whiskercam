@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { setProbe } from '../engine/materials';
 import { G, type Physics } from '../engine/physics';
 import { SHADOW_LAYER } from '../engine/shadows';
@@ -40,6 +41,7 @@ export class Props {
     const info = world.info.props;
     if (!info) return props;
     const loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder);
     const models = new Map<string, THREE.Group>();
     await Promise.all(
       Object.entries(info.models).map(async ([key, m]) => {

@@ -12,10 +12,11 @@ import { loadWorld, type LoadedWorld } from '../engine/world';
 import { StandInCat, type CatVisual, type CatVisualFactory, type Coat } from './cats';
 import { CatModel } from './furcat';
 import { Nav } from './nav';
+import { Pigeons } from './pigeons';
 import { Player } from './player';
 import { Props } from './props';
 import { Session, type BrotherInfo, type RivalInfo } from './session';
-import { QUALITY_SCALE, type Settings } from './settings';
+import { QUALITY_LINES, QUALITY_SCALE, type Settings } from './settings';
 
 export interface GameOptions {
   set: string;
@@ -41,6 +42,7 @@ export class Game {
   shadows!: LiveShadows;
   grass: Grass | null = null;
   props!: Props;
+  pigeons!: Pigeons;
   session!: Session;
   /** how cats are drawn; swapped for the furry model once that is loaded */
   catFactory!: CatVisualFactory;
@@ -49,6 +51,12 @@ export class Game {
   freeCam: { x: number; y: number; z: number; heading: number; pitch: number; roll: number } | null = null;
   time = 0;
   paused = false;
+  /** most picture lines drawn, whatever the screen (set by the quality setting) */
+  maxLines = 1600;
+  /** 0.55 .. 1: lowered automatically when the graphics card cannot keep up */
+  private governor = 1;
+  private slowFrames = 0;
+  private fastFrames = 0;
   readonly recorder: Recorder;
   readonly audio = new Audio(`${import.meta.env.BASE_URL}audio/`);
   /** called once per drawn frame, after the world has been updated */
@@ -93,6 +101,7 @@ export class Game {
     const sky = new Sky(game.world.materials.globals);
     await sky.load(renderer, game.world.base + game.world.info.sky.file, game.world.info.sky.range);
     game.scene.add(game.world.group, sky.mesh);
+    game.post.sunDir.copy(game.world.materials.globals.uSunDir.value);
     if (game.world.info.kinds) {
       game.grass = new Grass(game.world.materials.globals);
       await game.grass.load(game.world.base + game.world.info.kinds.file, game.world.info.kinds);
@@ -116,6 +125,17 @@ export class Game {
     }
     game.newSession();
     game.setPlayerCoat('ginger');
+    // pigeons: on the square, by the bike racks, in front of the gate (they move on when scared off)
+    const spots = (game.world.info.pigeons ?? [[10.5, 2.5], [33, -27], [-44, -1.5]]).map(([x, z]): [number, number, number] => {
+      const ground = game.physics.groundBelow(x, 3, z, 6);
+      return [x, ground ? ground.y : 0, z];
+    });
+    game.pigeons = new Pigeons(game.scene, game.world.materials, game.world.groundLight, spots);
+    game.pigeons.onScatter = (x, z) => {
+      if (!game.session.active) return;
+      game.session.score.add('pigeons');
+      game.session.sfx.push({ name: 'wings', x, z });
+    };
     say(1, 'Ready');
     return game;
   }
@@ -135,8 +155,11 @@ export class Game {
   /** Take over the player's choices (called at start and whenever a setting changes). */
   applySettings(s: Settings): void {
     const q = QUALITY_SCALE[s.quality] ?? 1;
-    if (Math.abs(q - this.opts.quality) > 1e-3 && !this.opts.size) {
+    const lines = QUALITY_LINES[s.quality] ?? 1600;
+    if ((Math.abs(q - this.opts.quality) > 1e-3 || lines !== this.maxLines) && !this.opts.size) {
       this.opts.quality = q;
+      this.maxLines = lines;
+      this.governor = 1;
       this.layout();
     }
     this.input.mouseSensitivity = 0.11 * s.sensitivity;
@@ -169,6 +192,7 @@ export class Game {
     this.player.pullBack = 0;
     this.player.tiltUp = 0;
     this.props.reset();
+    this.pigeons.reset();
     this.newSession();
     this.post.cut();
   }
@@ -192,13 +216,15 @@ export class Game {
     } else {
       h = window.innerHeight;
       w = Math.min(window.innerWidth, Math.round((h * 9) / 16));
+      // a phone clip does not need more than this many lines; big screens just show it larger
+      dpr = Math.min(dpr, this.maxLines / h);
     }
     const pw = Math.max(2, Math.round(w * dpr));
     const ph = Math.max(2, Math.round(h * dpr));
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.renderer.setSize(pw, ph, false);
-    this.post.setSize(pw, ph, this.opts.quality);
+    this.post.setSize(pw, ph, this.opts.quality * this.governor);
   }
 
   /** One fixed step of the world. */
@@ -207,6 +233,7 @@ export class Game {
     this.player.update(STEP, c);
     this.physics.step();
     this.props.update(STEP);
+    this.pigeons.update(STEP, this.player.x, this.player.z, this.player.speed);
     this.session.update(STEP, c);
     for (const s of this.session.sfx.splice(0, this.session.sfx.length)) this.audio.event(s.name, s);
     this.audio.update(this.player.camX, this.player.camZ, this.player.camHeading, this.player.speed, this.session.active ? this.player.idle : 0, STEP);
@@ -275,6 +302,19 @@ export class Game {
       if (!this.running) return;
       const dt = Math.min(0.1, (now - this.last) / 1000);
       this.last = now;
+      // keep it smooth: if frames keep coming late, draw fewer pixels; if there is room, go back up
+      if (!this.paused && dt > 0.021) this.slowFrames++;
+      else if (dt < 0.0125) this.fastFrames++;
+      if (this.slowFrames > 45 && this.governor > 0.56) {
+        this.governor = Math.max(0.55, this.governor - 0.12);
+        this.slowFrames = this.fastFrames = 0;
+        this.layout();
+      } else if (this.fastFrames > 900 && this.governor < 1) {
+        this.governor = Math.min(1, this.governor + 0.12);
+        this.slowFrames = this.fastFrames = 0;
+        this.layout();
+      }
+      if (this.slowFrames + this.fastFrames > 1200) this.slowFrames = this.fastFrames = 0;
       this.acc += dt;
       const c = this.input.poll();
       const pausePressed = c.pause;

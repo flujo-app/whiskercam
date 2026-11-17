@@ -29,6 +29,8 @@ export interface LookSettings {
   adaptDarker: number;
   fringe: number;
   /** closer than this many metres things go out of focus (small fixed-focus lens) */
+  /** strength of the star and ghosts when the sun is in the picture */
+  flare: number;
   focusNear: number;
   /** how soft: blur radius right at the lens, as a fraction of the picture width */
   nearBlur: number;
@@ -48,6 +50,7 @@ export const defaultLook: LookSettings = {
   adaptBrighter: 0.3,
   adaptDarker: 0.9,
   fringe: 0.004,
+  flare: 1,
   focusNear: 0.17,
   nearBlur: 0.035,
 };
@@ -86,6 +89,9 @@ export class Post {
   private readonly meterMat: THREE.ShaderMaterial;
   private readonly finishMat: THREE.ShaderMaterial;
 
+  /** direction towards the sun (world); set by the game once the world is loaded */
+  readonly sunDir = new THREE.Vector3(0, 1, 0);
+  private readonly sunLocal = new THREE.Vector3();
   private readonly prevRig = new THREE.Matrix4();
   private readonly prevRigInv = new THREE.Matrix4();
   private hasPrev = false;
@@ -161,6 +167,10 @@ export class Post {
       uContrast: { value: 1.08 },
       uWhiteBalance: { value: new THREE.Vector3(1, 1, 1) },
       uFrame: { value: rig.frame },
+      uDepth: { value: null },
+      uSunUv: { value: new THREE.Vector2(0.5, 0.5) },
+      uSunOn: { value: 0 },
+      uFlare: { value: 1 },
     });
 
     const tiny = () =>
@@ -338,6 +348,15 @@ export class Post {
     fu.uVignette.value = look.vignette;
     fu.uSaturation.value = look.saturation;
     fu.uContrast.value = look.contrast;
+    fu.uDepth.value = this.lensRT.textures[1];
+    fu.uFlare.value = look.flare;
+    // where is the sun in the fisheye picture?
+    const s = this.sunLocal.copy(this.sunDir).transformDirection(this.prevRigInv.copy(rig.rig.matrixWorld).invert());
+    const theta = Math.acos(Math.max(-1, Math.min(1, -s.z)));
+    const rr = Math.sin(theta / 2) / rig.sinHalfMax;
+    const l = Math.hypot(s.x, s.y) || 1;
+    (fu.uSunUv.value as THREE.Vector2).set(((s.x / l) * rr) / rig.frame.x * 0.5 + 0.5, ((s.y / l) * rr) / rig.frame.y * 0.5 + 0.5);
+    fu.uSunOn.value = theta < 1.5 ? Math.min(1, (1.5 - theta) * 4) : 0;
     this.draw(this.finishMat, null);
   }
 
