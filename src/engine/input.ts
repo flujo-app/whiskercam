@@ -15,6 +15,8 @@ export interface Controls {
   pawRight: boolean;
   dodge: boolean;
   pause: boolean;
+  /** the cat says something (true only on the frame the key went down) */
+  meow?: boolean;
   /** any key, click or tap this frame (used by "press to start") */
   any: boolean;
 }
@@ -210,6 +212,7 @@ export class Input {
     s.pawRight = pawRight;
     s.dodge = dodge;
     s.pause = pause;
+    s.meow = this.hit('KeyF', 'KeyM', 'v:meow');
     s.any = this.any;
     this.pressed.clear();
     this.yaw = 0;

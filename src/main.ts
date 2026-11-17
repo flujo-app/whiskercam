@@ -45,6 +45,7 @@ async function start(): Promise<void> {
     quality: params.has('q') ? Number(params.get('q')) : QUALITY_SCALE[settings.quality] ?? 1,
     size: size && size.length === 2 ? [size[0], size[1]] : undefined,
     manual,
+    lean: touchDevice || params.has('lean'),
     onProgress: (f, text) => {
       bootFill.style.width = `${Math.round(f * 100)}%`;
       bootText.textContent = text;
@@ -95,7 +96,17 @@ async function start(): Promise<void> {
   game.applySettings(settings);
   game.input.onStick = (c, k) => hud.setStick(c, k, canvas.getBoundingClientRect());
 
-  const place = () => hud.place(canvas.getBoundingClientRect());
+  // the blurred copy of the picture that fills the sides of a wide screen
+  const glow = document.getElementById('glow') as HTMLCanvasElement | null;
+  const glowCtx = glow?.getContext('2d') ?? null;
+  let glowOn = false;
+  let glowTick = 0;
+  const place = () => {
+    const rect = canvas.getBoundingClientRect();
+    hud.place(rect);
+    glowOn = !!glow && !manual && innerWidth - rect.width > 80;
+    if (glow) glow.style.display = glowOn ? 'block' : 'none';
+  };
   place();
   addEventListener('resize', () => requestAnimationFrame(place));
 
@@ -105,6 +116,8 @@ async function start(): Promise<void> {
       game.paused = true;
       game.audio.suspend(true);
       hud.show('pause');
+      // give the mouse back, or the pause buttons cannot be clicked (pausing from a gamepad, for instance)
+      game.input.unlockPointer();
     }
   };
   document.addEventListener('pointerlockchange', () => {
@@ -116,6 +129,7 @@ async function start(): Promise<void> {
 
   let finished = false;
   game.onFrame = (dt, controls) => {
+    if (glowOn && glowCtx && glowTick++ % 2 === 0) glowCtx.drawImage(canvas, 0, 0, 288, 512);
     if (controls.pause) pause();
     hud.update(game.session, dt, game.input.usingTouch);
     if (game.session.phase === 'ended' && !finished) {

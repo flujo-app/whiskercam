@@ -22,9 +22,17 @@ blender -b --factory-startup -P pipeline/blender/run.py -- build_estate --name e
 blender -b --factory-startup -P pipeline/blender/run.py -- bake_estate  --name estate
 node tools/pack.mjs estate
 npm run dev                                               play at http://127.0.0.1:5183/?set=estate
-node tools/shots.mjs estate                               test pictures from a hidden browser -> build/shots/
+blender -b --factory-startup -P pipeline/blender/run.py -- build_cat      the cat model and its six coats -> build/export/cats/
 blender -b --factory-startup -P pipeline/blender/run.py -- stage <module>   look at one asset module
+
+node tools/shots.mjs estate                               test pictures from a hidden browser -> build/shots/
+node tools/playtest.mjs estate                            a bot plays a whole round -> build/playtest/
+node tools/uitest.mjs estate                              clicks through every screen, desktop and phone size
+node tools/credits.mjs                                    rewrite CREDITS.md from what is used
+node tools/deploy.mjs                                     build and publish the live page
 ```
+
+The whole estate (build, bake, pack) takes about 35 minutes on an RTX 2070 Super with 8 GB.
 
 One-time setup for the pipeline (not needed to play or to work on the game code):
 
@@ -49,7 +57,7 @@ python -m venv build/pyenv && build/pyenv/Scripts/python -m pip install numpy xa
 
   | tag | values | meaning |
   | --- | --- | --- |
-  | `wc_role` | `ground`, `kerb`, `wall`, `building`, `prop`, `vehicle`, `fence`, `foliage`, `scatter`, `decal`, `collider` | what it is |
+  | `wc_role` | `ground`, `kerb`, `wall`, `building`, `prop`, `vehicle`, `fence`, `foliage`, `scatter`, `decal`, `collider`, `far` | what it is (`far` = scenery beyond the walls: no baked light, lit by plain sun and sky) |
   | `wc_collide` | `mesh`, `none` | whether the cat bumps into it (`collider` objects are invisible helpers that only collide) |
   | `wc_lm` | number, default 1 | light-map detail: 1 near the ground, 0.3 for upper floors, 0.15 for roofs |
   | `wc_surface` | material name | footstep sound for ground |
@@ -69,3 +77,4 @@ python -m venv build/pyenv && build/pyenv/Scripts/python -m pip install numpy xa
 | `assets_src/` | downloaded scans | no (re-fetchable) |
 | `build/` | Blender files, bakes, test pictures | no |
 | `public/assets/` | packed game data | no (published with the site) |
+| `public/audio/` | sound recordings (see CREDITS.md) | yes |

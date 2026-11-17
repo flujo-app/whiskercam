@@ -23,6 +23,24 @@ console.log('building...');
 run('npx', ['vite', 'build']);
 const dist = path.join(ROOT, 'dist');
 fs.writeFileSync(path.join(dist, '.nojekyll'), '');
+
+// only ship what the game loads: no test slices, no surface pictures left over from earlier builds
+for (const e of fs.readdirSync(path.join(dist, 'assets'), { withFileTypes: true })) {
+  if (e.isDirectory() && !['estate', 'cats', 'tex'].includes(e.name)) fs.rmSync(path.join(dist, 'assets', e.name), { recursive: true });
+}
+const used = new Set();
+for (const f of ['materials.json', 'world.json']) {
+  const text = fs.readFileSync(path.join(dist, 'assets', 'estate', f), 'utf8');
+  for (const m of text.matchAll(/tex\/([\w.-]+\.webp)/g)) used.add(m[1]);
+}
+let dropped = 0;
+for (const f of fs.readdirSync(path.join(dist, 'assets', 'tex'))) {
+  if (!used.has(f)) {
+    fs.rmSync(path.join(dist, 'assets', 'tex', f));
+    dropped++;
+  }
+}
+console.log(`kept ${used.size} surface pictures, left out ${dropped} unused ones`);
 let bytes = 0;
 let biggest = ['', 0];
 const walk = (dir) => {
