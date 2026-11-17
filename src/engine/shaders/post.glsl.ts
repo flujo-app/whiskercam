@@ -219,17 +219,30 @@ uniform float uBlendBrighter; // how fast to follow when the scene gets brighter
 uniform float uBlendDarker;
 varying vec2 vUv;
 void main() {
-  float sum = 0.0, wsum = 0.0;
+  // first pass: the plain average, to know what counts as "deep shadow" in this picture
+  float mean = 0.0, wsum = 0.0;
   for (int y = 0; y < 8; y++) {
     for (int x = 0; x < 6; x++) {
       vec2 uv = (vec2(float(x), float(y)) + 0.5) / vec2(6.0, 8.0);
-      vec3 c = textureLod(uTex, uv, 5.0).rgb;
-      float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      float l = dot(textureLod(uTex, uv, 5.0).rgb, vec3(0.2126, 0.7152, 0.0722));
       // phones weigh the middle and the lower part (the subject) more than the sky
       float w = 1.0 - 0.55 * smoothstep(0.55, 1.0, uv.y);
       w *= 1.0 - 0.3 * abs(uv.x - 0.5) * 2.0;
-      sum += log(max(l, 1e-4)) * w;
+      mean += l * w;
       wsum += w;
+    }
+  }
+  mean /= wsum;
+  // second pass: the usual "middle grey" reading, except that deep shadows are not allowed to drag
+  // the exposure up until everything in the sun burns out (phones protect the highlights)
+  float sum = 0.0;
+  for (int y = 0; y < 8; y++) {
+    for (int x = 0; x < 6; x++) {
+      vec2 uv = (vec2(float(x), float(y)) + 0.5) / vec2(6.0, 8.0);
+      float l = dot(textureLod(uTex, uv, 5.0).rgb, vec3(0.2126, 0.7152, 0.0722));
+      float w = 1.0 - 0.55 * smoothstep(0.55, 1.0, uv.y);
+      w *= 1.0 - 0.3 * abs(uv.x - 0.5) * 2.0;
+      sum += log(max(l, max(mean * 0.11, 1e-4))) * w;
     }
   }
   float now = exp(sum / wsum);

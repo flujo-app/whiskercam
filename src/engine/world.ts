@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { Materials, type LightRef, type MatDesc } from './materials';
+import { Materials, type LightRef, type MatDesc, setProbe } from './materials';
 
 export interface ChunkInfo {
   name: string;
-  kind: 'ground' | 'struct' | 'foliage';
+  kind: 'ground' | 'struct' | 'foliage' | 'far';
   file: string;
   sun?: string;
   irr?: string;
@@ -195,6 +195,19 @@ export async function loadWorld(
     g.uGroundXform.value.set(1 / gl.w, 1 / gl.h, -gl.x0 / gl.w, -gl.z0 / gl.h);
   }
 
+  // far-away scenery has no baked light: plain sun and open sky, the same for every block
+  const farMats = new Map<string, THREE.ShaderMaterial>();
+  const farMaterial = (name: string): THREE.ShaderMaterial => {
+    let m = farMats.get(name);
+    if (!m) {
+      m = materials.fresh(name);
+      const [r, g, b] = info.sky_irradiance_up.map((v) => v / Math.PI);
+      setProbe(m, { r, g, b, sun: 1 }, materials.globals, 0.2);
+      farMats.set(name, m);
+    }
+    return m;
+  };
+
   const chunkJobs = info.chunks.map(async (chunk) => {
     let light: LightRef | null = null;
     if (chunk.sun && chunk.irr) {
@@ -212,7 +225,7 @@ export async function loadWorld(
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       const name = (mesh.material as THREE.Material).name;
-      const mat = materials.get(name, light, { mode: 'vertex' });
+      const mat = chunk.kind === 'far' ? farMaterial(name) : materials.get(name, light, { mode: 'vertex' });
       if (light) (mat.uniforms.uLmSunSize.value as THREE.Vector2).setScalar(chunk.res ?? 1024);
       mesh.material = mat;
       mesh.matrixAutoUpdate = false;
@@ -229,13 +242,13 @@ export async function loadWorld(
     const data = await gltf.loadAsync(base + model.file);
     const count = model.matrices.length / 16;
     const plant = model.plant !== false;
-    // bucket the copies into map squares so far-away plants can be skipped as a group
+    // bucket the copies into map squares: squares outside the picture are skipped, and so are far-away plants
     const CELL = 16;
     const buckets = new Map<string, number[]>();
     for (let i = 0; i < count; i++) {
       const cx = Math.floor(model.matrices[i * 16 + 12] / CELL);
       const cz = Math.floor(model.matrices[i * 16 + 14] / CELL);
-      const k = plant ? `${cx},${cz}` : 'all';
+      const k = `${cx},${cz}`;
       let list = buckets.get(k);
       if (!list) buckets.set(k, (list = []));
       list.push(i);

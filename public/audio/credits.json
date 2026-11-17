@@ -1,0 +1,266 @@
+[
+  {
+    "file": "amb_estate.mp3",
+    "title": "MORNING SUBURB QUIET FEW BIRDS (Rue Edmond Nocard, Maisons-Alfort, France), Radio Aporee",
+    "author": "Damien Guillaume",
+    "licence": "Public Domain Mark 1.0",
+    "source_url": "https://archive.org/details/aporee_48789_55542",
+    "changes": "cut 255-335 s of the original; high-pass 40 Hz; low-pass 13000 Hz; made into a seamless loop (end crossfaded into start over 4 s); normalised to peak -3 dBFS; stereo, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_meow_1.mp3",
+    "title": "meow-1.wav",
+    "author": "nathan-osman",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/nathan-osman/sounds/686775/",
+    "changes": "cut 0-0.83 s of the original (Freesound HQ preview MP3); high-pass 150 Hz; trimmed quiet start/end; fade in 5 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_meow_2.mp3",
+    "title": "cat meow",
+    "author": "tuberatanka",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/tuberatanka/sounds/110011/",
+    "changes": "cut 0.1-1.25 s of the original (Freesound HQ preview MP3); high-pass 150 Hz; trimmed quiet start/end; fade in 5 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_meow_3.mp3",
+    "title": "Single Meow",
+    "author": "AlexisAndrews",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/AlexisAndrews/sounds/828045/",
+    "changes": "cut 0.3-1.2 s of the original (Freesound HQ preview MP3); high-pass 150 Hz; trimmed quiet start/end; fade in 5 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_meow_4.mp3",
+    "title": "cat meow short",
+    "author": "skymary",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/skymary/sounds/412017/",
+    "changes": "cut 0.22-1.2 s of the original (Freesound HQ preview MP3); high-pass 150 Hz; trimmed quiet start/end; fade in 5 ms, fade out 30 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_chirp_1.mp3",
+    "title": "Cat trilling",
+    "author": "jsbarrett",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/jsbarrett/sounds/200336/",
+    "changes": "cut 9.82-10.32 s of the original (Freesound HQ preview MP3); high-pass 120 Hz; trimmed quiet start/end; fade in 5 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_chirp_2.mp3",
+    "title": "cat chirp.wav",
+    "author": "dreamstobecome",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/dreamstobecome/sounds/451250/",
+    "changes": "cut 0.55-0.85 s of the original (Freesound HQ preview MP3); high-pass 120 Hz; trimmed quiet start/end; fade in 5 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_purr.mp3",
+    "title": "Cat Purring",
+    "author": "nathan-osman",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/nathan-osman/sounds/781127/",
+    "changes": "cut 3.75-8.4 s of the original (Freesound HQ preview MP3); high-pass 30 Hz; made into a seamless loop (end crossfaded into start over 0.3 s); normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_hiss_1.mp3",
+    "title": "catHisses1.wav",
+    "author": "Zabuhailo",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/Zabuhailo/sounds/146963/",
+    "changes": "cut 0.25-1.25 s of the original (Freesound HQ preview MP3); high-pass 150 Hz; trimmed quiet start/end; fade in 5 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_hiss_2.mp3",
+    "title": "Cat hissing",
+    "author": "rickismyname",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/rickismyname/sounds/819958/",
+    "changes": "cut 1.45-2.3 s of the original (Freesound HQ preview MP3); high-pass 150 Hz; trimmed quiet start/end; fade in 5 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_growl_1.mp3",
+    "title": "Cat Growl into Hiss.aif",
+    "author": "Wrenasmir",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/Wrenasmir/sounds/455495/",
+    "changes": "cut 4.55-6.46 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 80 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_growl_2.mp3",
+    "title": "Cat Growling and Hissing",
+    "author": "dinoroki",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/dinoroki/sounds/679954/",
+    "changes": "cut 1.85-3.9 s of the original (Freesound HQ preview MP3); high-pass 40 Hz; trimmed quiet start/end; fade in 150 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_yowl_1.mp3",
+    "title": "cat hiss yowl.wav",
+    "author": "taure",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/taure/sounds/346310/",
+    "changes": "cut 20.15-21.6 s of the original (Freesound HQ preview MP3); high-pass 100 Hz; trimmed quiet start/end; fade in 5 ms, fade out 5 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "cat_yowl_2.mp3",
+    "title": "angry_cats.flac",
+    "author": "drummy",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/drummy/sounds/518171/",
+    "changes": "cut 6-7.45 s of the original (Freesound HQ preview MP3); high-pass 100 Hz; trimmed quiet start/end; fade in 5 ms, fade out 120 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "bell_1.mp3",
+    "title": "Cat Collar Bell Shakes Short",
+    "author": "loganzsound",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/loganzsound/sounds/874633/",
+    "changes": "cut 4.58-5 s of the original (Freesound HQ preview MP3); high-pass 300 Hz; trimmed quiet start/end; fade in 5 ms, fade out 40 ms; normalised to peak -9 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "bell_2.mp3",
+    "title": "Cat Collar Bell Shakes Short",
+    "author": "loganzsound",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/loganzsound/sounds/874633/",
+    "changes": "cut 2.75-3.22 s of the original (Freesound HQ preview MP3); high-pass 300 Hz; trimmed quiet start/end; fade in 5 ms, fade out 40 ms; normalised to peak -9 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "bell_3.mp3",
+    "title": "Cat Collar Bell Shakes Short",
+    "author": "loganzsound",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/loganzsound/sounds/874633/",
+    "changes": "cut 3.67-4.07 s of the original (Freesound HQ preview MP3); high-pass 300 Hz; trimmed quiet start/end; fade in 5 ms, fade out 40 ms; normalised to peak -9 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "slap_1.mp3",
+    "title": "Light Slaps",
+    "author": "LongTale",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/LongTale/sounds/241297/",
+    "changes": "cut 2.12-2.42 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 20 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "slap_2.mp3",
+    "title": "Light Slaps",
+    "author": "LongTale",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/LongTale/sounds/241297/",
+    "changes": "cut 8.1-8.4 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 20 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "slap_3.mp3",
+    "title": "Soft Hand Impacts",
+    "author": "JelloApocalypse",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/JelloApocalypse/sounds/802602/",
+    "changes": "cut 7.1-7.4 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 20 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "whoosh_1.mp3",
+    "title": "Wosch!-Luftzisch-2.mp3",
+    "author": "meisterleise",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/meisterleise/sounds/547448/",
+    "changes": "cut 0-0.5 s of the original (Freesound HQ preview MP3); high-pass 200 Hz; trimmed quiet start/end; fade in 5 ms, fade out 30 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "whoosh_2.mp3",
+    "title": "Short Whoosh, 13x",
+    "author": "Kinoton",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/Kinoton/sounds/427979/",
+    "changes": "cut 3.35-3.95 s of the original (Freesound HQ preview MP3); high-pass 120 Hz; trimmed quiet start/end; fade in 5 ms, fade out 30 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "knock_ceramic_1.mp3",
+    "title": "Clay Pottery Drop ’n’ Break",
+    "author": "Kinoton",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/Kinoton/sounds/399080/",
+    "changes": "cut 2.8-3.95 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 50 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "knock_ceramic_2.mp3",
+    "title": "Clay Jar Break",
+    "author": "Clearwavsound",
+    "licence": "CC BY 3.0",
+    "source_url": "https://freesound.org/people/Clearwavsound/sounds/540336/",
+    "changes": "cut 0.33-1.2 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 50 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "knock_can_1.mp3",
+    "title": "Empty Soda Can Onto Concrete 01",
+    "author": "HECKFRICKER",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/HECKFRICKER/sounds/753528/",
+    "changes": "cut 0.5-1.4 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 50 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "knock_can_2.mp3",
+    "title": "Empty Soda Can Onto Concrete 01",
+    "author": "HECKFRICKER",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/HECKFRICKER/sounds/753528/",
+    "changes": "cut 12.77-13.8 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 50 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "knock_plastic_1.mp3",
+    "title": "Plastic - Bottle - Drop - Falling - Bounce - Empty - Concrete - Hollow.wav",
+    "author": "td6d",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/td6d/sounds/560376/",
+    "changes": "cut 5.77-7.1 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 50 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "knock_ball_1.mp3",
+    "title": "bola de tenis caindo.wav",
+    "author": "Negraovictor",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/Negraovictor/sounds/394355/",
+    "changes": "cut 2.3-3.38 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 80 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "knock_metal_1.mp3",
+    "title": "Metal Bucket Hit and Fall",
+    "author": "ingolyrio",
+    "licence": "CC BY 4.0",
+    "source_url": "https://freesound.org/people/ingolyrio/sounds/184690/",
+    "changes": "cut 2.85-4.25 s of the original (Freesound HQ preview MP3); high-pass 60 Hz; trimmed quiet start/end; fade in 5 ms, fade out 80 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "knock_thud_1.mp3",
+    "title": "Dropping Compost Bag on Floor.wav",
+    "author": "F.M.Audio",
+    "licence": "CC BY 4.0",
+    "source_url": "https://freesound.org/people/F.M.Audio/sounds/547583/",
+    "changes": "cut 3.25-3.95 s of the original (Freesound HQ preview MP3); high-pass 35 Hz; trimmed quiet start/end; fade in 5 ms, fade out 50 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "rustle_1.mp3",
+    "title": "bushmovement.wav",
+    "author": "j1987",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/j1987/sounds/106114/",
+    "changes": "cut 0-1.2 s of the original (Freesound HQ preview MP3); high-pass 100 Hz; trimmed quiet start/end; fade in 10 ms, fade out 120 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "rustle_2.mp3",
+    "title": "Scuttling in the Bushes",
+    "author": "FairhavenCollection",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/FairhavenCollection/sounds/874461/",
+    "changes": "cut 7.65-8.75 s of the original (Freesound HQ preview MP3); high-pass 100 Hz; trimmed quiet start/end; fade in 30 ms, fade out 120 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  },
+  {
+    "file": "wings_1.mp3",
+    "title": "Pigeon, Flies Away, Flapping Wings",
+    "author": "Kinoton",
+    "licence": "CC0 1.0",
+    "source_url": "https://freesound.org/people/Kinoton/sounds/689998/",
+    "changes": "cut 0.45-2.4 s of the original (Freesound HQ preview MP3); high-pass 80 Hz; trimmed quiet start/end; fade in 5 ms, fade out 200 ms; normalised to peak -3 dBFS; mono, MP3 128 kbit/s 44.1 kHz"
+  }
+]

@@ -216,7 +216,7 @@ export class Player {
     const a = this.phase * Math.PI * 2;
 
     // height of the collar above the paws: head up when standing, neck stretched low at speed, belly down when ducking
-    let height = lerp(0.175, 0.118, run) - 0.012 * moving;
+    let height = lerp(0.118, 0.106, run) - 0.004 * moving;
     height = lerp(height, 0.062, this.crouch);
     // the up-and-down of the stride: two small bobs per stride when walking, one big bound when galloping
     const bobWalk = Math.sin(a * 2) * lerp(0.004, 0.009, moving);

@@ -60,7 +60,7 @@ TILES: dict[str, dict] = {
     "planks_weathered": {"ph": "weathered_planks"},
     "planks_grey": {"ph": "wood_planks_grey"},
     # ground
-    "grass": {"ph": "forrest_ground_01", "tint": (0.5, 0.74, 0.42)},
+    "grass": {"ph": "forrest_ground_01", "tint": (0.42, 0.62, 0.36)},
     "grass_leafy": {"ph": "leafy_grass"},
     "grass_sparse": {"ph": "sparse_grass"},
     "dirt": {"ph": "park_dirt"},

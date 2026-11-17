@@ -43,7 +43,7 @@ export const defaultLook: LookSettings = {
   grain: 0.035,
   sharpen: 0.45,
   vignette: 0.32,
-  saturation: 1.22,
+  saturation: 1.1,
   contrast: 1.1,
   shutter: 1 / 60,
   maxBlur: 0.09,

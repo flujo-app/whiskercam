@@ -237,6 +237,10 @@ def build(sc, window=None, placeholders: bool = False) -> P.Plan:
 
     loose = dressing.Dresser(plan, geo.collection("props", coll), win).all()
     sc["wc_loose"] = json.dumps(loose)
+    if win is None:
+        from . import backdrop
+
+        backdrop.build(geo.collection("backdrop", coll))
     print(f"[build] {len(loose)} loose things")
     # collider-only helpers never render
     for obj in bpy.data.objects:

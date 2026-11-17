@@ -270,6 +270,42 @@ class Dresser:
             body = [o for o in objs if "wheel" not in o.data.name]
             _solid(f"covered{k}", body, self.coll, pad=-0.05, surface="hedge")
 
+    def vehicles(self) -> None:
+        """Parked cars under the car port and along the kerb, scooters, bikes at the racks."""
+        from assets import vehicles
+
+        def park(kind: str, key: str, colour: str, x: float, y: float, rot: float, seed: int) -> None:
+            if not self.inside(x, y):
+                return
+            name = f"{kind}_{key}"
+            if kind == "car":
+                parts = vehicles.build_car(name, key.split("_")[0], colour, self.coll, seed=seed)
+            elif kind == "scooter":
+                parts = vehicles.build_scooter(name, colour, self.coll, seed=seed)
+            else:
+                parts = vehicles.build_bicycle(name, colour, self.coll, seed=seed)
+            geo.place(parts, (x, y, self.h(x, y)), rot + self.rng.uniform(-2.5, 2.5))
+            for o in parts:
+                if o.get("wc_role") == "collider":
+                    o["wc_surface"] = "metal"
+
+        bay = 28.0 / 11
+        # car port: nose to the road. Bays 1 and 6 hold the covered cars; 2, 7 and 9 stay free (cat paths, Duchess)
+        for k, style, paint in ((0, "hatch", "car_red"), (3, "sedan", "car_silver"), (4, "van", "car_white"),
+                                (5, "micro", "car_blue"), (8, "hatch", "car_grey"), (10, "sedan", "car_black")):
+            park("car", f"{style}_port{k}", paint, 42.15 + self.rng.uniform(-0.2, 0.25), -14.0 + (k + 0.5) * bay, 90.0, k)
+        # along the kerb of the ring road, well clear of its centre line
+        park("car", "sedan_south", "car_blue", -19.5, -20.05, -90.0, 21)
+        park("car", "micro_south", "car_white", 12.5, -20.2, 90.0, 22)
+        park("car", "van_north", "car_grey", -9.0, 20.0, 90.0, 23)
+        park("car", "hatch_west", "car_silver", -38.05, 9.5, 0.0, 24)
+        # scooters on the pavement and by the racks, bikes at the racks
+        park("scooter", "south", "paint_red", 9.2, -22.75, 96.0, 31)
+        park("scooter", "pad_a", "paint_white", 24.6, 26.1, 172.0, 32)
+        park("scooter", "pad_b", "paint_blue", 25.6, 26.25, 187.0, 33)
+        for k, colour in ((0, "paint_green"), (2, "paint_black"), (3, "paint_blue"), (5, "paint_red")):
+            park("bike", f"rack{k}", colour, 27.0 + k * 1.1 + 0.22, 26.05, 4.0 if k % 2 else 184.0, 40 + k)
+
     def all(self) -> list[dict]:
         self.lamps()
         self.road_details()
@@ -282,4 +318,5 @@ class Dresser:
         self.bike_racks()
         self.speed_bumps()
         self.covered_cars()
+        self.vehicles()
         return self.dynamic

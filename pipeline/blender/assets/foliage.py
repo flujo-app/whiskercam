@@ -61,8 +61,12 @@ def _cards_object(name: str, verts, faces, uvs, normals, material, coll) -> bpy.
     return obj
 
 
+# the leaf pictures come out brighter and yellower than real leaves in sunlight; these bring them back
+LEAF_TINT = {"hedge": (0.6, 0.72, 0.55), "tree": (0.52, 0.66, 0.6)}
+
+
 def leaf_material(kind: str) -> bpy.types.Material:
-    return mat.leaf(f"{kind}_leaves", SPRITES / f"{kind}_leaves.png")
+    return mat.leaf(f"{kind}_leaves", SPRITES / f"{kind}_leaves.png", LEAF_TINT.get(kind, (1.0, 1.0, 1.0)))
 
 
 def build_hedge(name: str, foot: Polygon, height: float, coll=None, seed: int = 0) -> bpy.types.Object | None:
