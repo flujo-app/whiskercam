@@ -66,6 +66,26 @@ def join(objs: Sequence[bpy.types.Object], name: str) -> bpy.types.Object:
     return out
 
 
+def place(objs: Sequence[bpy.types.Object], loc: Sequence[float], rot_z_deg: float = 0.0, scale: float = 1.0) -> None:
+    """Move a group of objects that were built around the origin: rotate about Z, then shift to `loc`."""
+    from mathutils import Matrix
+
+    xform = Matrix.Translation(Vector(loc)) @ Matrix.Rotation(math.radians(rot_z_deg), 4, "Z") @ Matrix.Scale(scale, 4)
+    for o in objs:
+        o.matrix_world = xform @ o.matrix_world
+    bpy.context.view_layer.update()
+
+
+def tag(objs, **props) -> None:
+    """Set wc_* tags on one object or a list, e.g. geo.tag(objs, role="vehicle", collide="none")."""
+    if isinstance(objs, bpy.types.Object):
+        objs = [objs]
+    for o in objs:
+        if o is not None:
+            for key, val in props.items():
+                o[f"wc_{key}"] = val
+
+
 def apply_modifiers(obj: bpy.types.Object) -> None:
     select_only([obj])
     for mod in list(obj.modifiers):

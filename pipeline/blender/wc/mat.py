@@ -113,6 +113,10 @@ FLATS: dict[str, dict] = {
 GLASS: dict[str, dict] = {
     "glass_window": {"color": (0.02, 0.025, 0.03), "rough": 0.03},
     "glass_car": {"color": (0.012, 0.014, 0.016), "rough": 0.02},
+    # windows with something pale right behind the pane (the game draws glass as a dark mirror, not see-through)
+    "glass_curtain_cream": {"color": (0.30, 0.27, 0.22), "rough": 0.05},
+    "glass_curtain_white": {"color": (0.42, 0.42, 0.40), "rough": 0.05},
+    "glass_blind_grey": {"color": (0.16, 0.17, 0.18), "rough": 0.06},
 }
 
 CAR_PAINTS: dict[str, dict] = {
