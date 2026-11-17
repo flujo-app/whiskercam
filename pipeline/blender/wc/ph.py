@@ -21,6 +21,72 @@ def _resolution(ph_id: str) -> str:
     return res[0] if isinstance(res, list) else res
 
 
+def _strip_vertex_colour(material: bpy.types.Material) -> None:
+    """Some scans carry vertex colours meant for wind animation. glTF import multiplies them into
+    the surface colour (turning leaves black), so wire the pictures straight to the shader instead."""
+    if not material.use_nodes:
+        return
+    nt = material.node_tree
+    if not any(n.type == "VERTEX_COLOR" for n in nt.nodes):
+        return
+    bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None:
+        return
+
+    def upstream_image(sock):
+        seen, stack = set(), [l.from_node for l in sock.links]
+        while stack:
+            node = stack.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            if node.type == "TEX_IMAGE" and node.image:
+                return node
+            for inp in node.inputs:
+                stack.extend(l.from_node for l in inp.links)
+        return None
+
+    base = bsdf.inputs["Base Color"]
+    img = upstream_image(base)
+    if img is not None:
+        for link in list(base.links):
+            nt.links.remove(link)
+        nt.links.new(img.outputs["Color"], base)
+    alpha = bsdf.inputs["Alpha"]
+    for link in list(alpha.links):
+        nt.links.remove(link)
+    if img is not None and img.image.filepath.lower().endswith(".png") and img.image.depth == 32:
+        nt.links.new(img.outputs["Alpha"], alpha)
+    else:
+        alpha.default_value = 1.0
+    for node in [n for n in nt.nodes if n.type == "VERTEX_COLOR"]:
+        nt.nodes.remove(node)
+
+
+# scans that are far heavier than a browser needs: thin them to roughly this many triangles per part
+MAX_TRIS = {
+    "street_lamp_01": 6000, "fire_hydrant": 5000, "concrete_road_barrier": 6000, "garden_gnome": 5000,
+    "potted_plant_01": 12000, "potted_plant_02": 9000, "watering_can_metal_01": 3000, "plastic_bottle_gallon": 2500,
+    "ceramic_vase_03": 2500, "concrete_cat_statue": 4000, "planter_box_01": 3500, "planter_box_02": 3500,
+    "plastic_crate_02": 3000, "street_rat": 3000, "water_manhole_cover": 2500, "can_rusted": 1500,
+    "dandelion_01": 1800, "nettle_plant": 1500, "periwinkle_plant": 1800, "modular_street_seating": 1500,
+    "garden_hose_wall_mounted_01": 4000, "security_light": 2500, "utility_box_02": 4000, "utility_box_01": 3500,
+    "trashbag": 2500, "compost_bags": 3000, "old_tyre": 2000, "metal_trash_can": 3500,
+    "grass_medium_02": 650, "weed_plant_02": 900, "fern_02": 800, "shrub_03": 900, "covered_car": 4600,
+}
+
+
+def _thin(obj: bpy.types.Object, limit: int) -> None:
+    tris = sum(len(p.vertices) - 2 for p in obj.data.polygons)
+    if tris <= limit * 1.15:
+        return
+    mod = obj.modifiers.new("thin", "DECIMATE")
+    mod.ratio = limit / tris
+    bpy.context.scene.collection.objects.link(obj)
+    geo.apply_modifiers(obj)
+    bpy.context.scene.collection.objects.unlink(obj)
+
+
 def load(ph_id: str) -> list[bpy.types.Object]:
     """Import a model into a hidden library collection. Returns its mesh objects (transforms applied)."""
     if ph_id in _LIB:
@@ -46,12 +112,17 @@ def load(ph_id: str) -> list[bpy.types.Object]:
         obj.data.update()
         if obj.data.uv_layers:
             obj.data.uv_layers[0].name = geo.UV0
+        while obj.data.color_attributes:
+            obj.data.color_attributes.remove(obj.data.color_attributes[0])
         for slot in obj.material_slots:
             if slot.material is not None:
+                _strip_vertex_colour(slot.material)
                 if not slot.material.name.startswith("ph_"):
                     slot.material.name = f"ph_{ph_id}_{slot.material.name}"[:60]
                 mat.register_imported(slot.material, ph_id)
         obj["wc_ph"] = ph_id
+        if ph_id in MAX_TRIS:
+            _thin(obj, MAX_TRIS[ph_id])
         meshes.append(obj)
     for obj in new:
         if obj.type != "MESH":

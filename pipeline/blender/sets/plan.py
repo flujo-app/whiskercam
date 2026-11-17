@@ -74,6 +74,7 @@ class Plan:
     kerb: Polygon | None = None
     kerb_yellow: Polygon | None = None
     lines: list[tuple[Polygon, str]] = field(default_factory=list)          # painted markings
+    trees: list[tuple[float, float, float, float]] = field(default_factory=list)     # (x, y, height, turn in degrees)
     taken: Polygon = field(default_factory=Polygon)
 
     def claim(self, name: str, geom, z: float, mat: str, kind: str = "ground") -> Polygon:
@@ -212,6 +213,14 @@ def make_plan() -> Plan:
         (LineString([(-43.5, 13.0), (-51.0, 13.0), (-51.0, 6.0), (-43.5, 6.0)]), 1.7, 0.2, "block_wall"),
     ]
 
+    # ---- trees: in a few gardens (their shade falls across the pavement and road), on the plaza and along the edges
+    p.trees += [
+        (-17.0, -27.2, 8.5, 20.0), (13.5, -27.6, 9.5, 140.0), (-36.5, -27.0, 9.0, 250.0), (31.0, -27.4, 8.0, 80.0),
+        (2.5, 8.5, 10.0, 0.0), (26.5, 2.0, 11.0, 200.0), (9.0, -10.0, 9.0, 300.0), (27.5, -9.5, 8.0, 45.0),
+        (-13.5, 22.4, 9.5, 170.0), (21.0, 22.6, 9.0, 60.0), (48.4, -6.0, 9.0, 110.0), (48.6, 9.0, 10.0, 290.0),
+        (-46.5, -20.0, 10.0, 15.0), (-47.0, 20.5, 9.0, 220.0),
+    ]
+
     # ---- painted markings
     for k in range(1, 11):
         yb = -14.0 + k * (28.0 / 11.0)
@@ -219,6 +228,102 @@ def make_plan() -> Plan:
     p.lines.append((box(39.45, -14.0, 39.57, 14.0), "line_white"))
     return p
 
+
+# ---------------------------------------------------------------- where the other cats live and run
+
+RIVALS = [
+    # name, coat, where it sits (x, y), which way it looks (compass degrees), how tough (1..3), turf radius
+    {"name": "Big Ginger", "coat": "ginger", "pos": (-46.4, 9.6), "facing": 95.0, "level": 1, "radius": 7.0, "turf": "the bins"},
+    {"name": "Duchess", "coat": "white", "pos": (42.0, 3.9), "facing": 270.0, "level": 2, "radius": 7.5, "turf": "the car port"},
+    {"name": "The Colonel", "coat": "tux", "pos": (14.0, 3.6), "facing": 180.0, "level": 3, "radius": 8.0, "turf": "the square"},
+]
+BROTHER = {"name": "Rocket", "coat": "tabby", "pos": (-2.1, -29.4), "facing": 15.0}
+
+
+def nav_graph() -> dict:
+    """Paths the other cats run along: the ring road plus short cuts. Nodes are (x, y), edges are index pairs."""
+    import math
+
+    nodes: list[tuple[float, float]] = []
+    edges: list[tuple[int, int]] = []
+
+    def add(x: float, y: float) -> int:
+        nodes.append((round(x, 2), round(y, 2)))
+        return len(nodes) - 1
+
+    def nearest(x: float, y: float, upto: int) -> int:
+        return min(range(upto), key=lambda i: (nodes[i][0] - x) ** 2 + (nodes[i][1] - y) ** 2)
+
+    # ring road centre line: rounded rectangle, a node every ~6 m
+    cx, cy, r = 36.0, 18.0, 8.0
+    pts = []
+    def seg(a, b, n):
+        for k in range(n):
+            pts.append((a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n))
+    def arc(ox, oy, a0, n=3):
+        for k in range(n):
+            a = math.radians(a0 + 90.0 * k / n)
+            pts.append((ox + r * math.cos(a), oy + r * math.sin(a)))
+    seg((-cx + r, -cy), (cx - r, -cy), 10)          # south side, west -> east
+    arc(cx - r, -cy + r, -90)
+    seg((cx, -cy + r), (cx, cy - r), 4)
+    arc(cx - r, cy - r, 0)
+    seg((cx - r, cy), (-cx + r, cy), 10)
+    arc(-cx + r, cy - r, 90)
+    seg((-cx, cy - r), (-cx, -cy + r), 4)
+    arc(-cx + r, -cy + r, 180)
+    ring = [add(x, y) for x, y in pts]
+    for i, a in enumerate(ring):
+        edges.append((a, ring[(i + 1) % len(ring)]))
+    n_ring = len(nodes)
+
+    def spur(points, join_start=True, join_end=False):
+        ids = [add(x, y) for x, y in points]
+        for a, b in zip(ids[:-1], ids[1:]):
+            edges.append((a, b))
+        if join_start:
+            edges.append((nearest(*points[0], n_ring), ids[0]))
+        if join_end:
+            edges.append((nearest(*points[-1], n_ring), ids[-1]))
+        return ids
+
+    home = spur([(-3.4, -21.8), (-3.4, -24.4), (-3.2, -28.0), (-3.4, -30.4)])
+    alley = spur([(-34.2, 0.0), (-28.0, 0.0), (-17.0, 0.0), (-6.0, 0.0), (1.5, 0.0), (6.5, 0.0), (14.0, 0.0)])
+    spur([(14.0, 6.5), (14.0, 12.5)], join_start=False, join_end=True)
+    edges.append((alley[-1], len(nodes) - 2))
+    spur([(14.0, -6.5), (14.0, -12.5)], join_start=False, join_end=True)
+    edges.append((alley[-1], len(nodes) - 2))
+    east = spur([(21.5, 3.0), (27.5, 11.0), (31.8, 13.2)], join_start=False, join_end=True)
+    edges.append((alley[-1], east[0]))
+    spur([(-1.6, -8.0), (-0.9, -13.8)], join_start=False, join_end=True)
+    edges.append((alley[4], len(nodes) - 2))
+    spur([(-41.0, 0.0), (-47.5, 0.0)])
+    spur([(-41.2, 9.4), (-44.6, 9.5)])
+    for y in (-9.0, 3.0, 10.0):
+        spur([(40.6, y), (42.6, y)])
+    spur([(29.5, 22.8), (33.0, 26.5), (38.0, 27.5)])
+    return {
+        "nodes": [[x, -y] for x, y in nodes],          # game axes: (x, z)
+        "edges": [list(e) for e in edges],
+        "ring": ring,
+        "home": home[-1],
+    }
+
+
+def game_info(out_dir=None) -> dict:
+    """Numbers the game needs besides the meshes (game axes: x east, y up, z south)."""
+    x0, y0, x1, y1 = EST
+    info = {
+        "estate": {"x0": x0, "z0": -y1, "w": x1 - x0, "h": y1 - y0},
+        "nav": nav_graph(),
+        "rivals": [{**r, "pos": [r["pos"][0], -r["pos"][1]]} for r in RIVALS],
+        "brother": {**BROTHER, "pos": [BROTHER["pos"][0], -BROTHER["pos"][1]]},
+    }
+    if out_dir is not None:
+        from wc import export
+
+        info["kinds"] = export.export_kinds(make_plan().regions, EST, out_dir)
+    return info
 
 if __name__ == "__main__":
     plan = make_plan()

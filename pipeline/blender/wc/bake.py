@@ -284,6 +284,73 @@ def prepare_structures(sc: bpy.types.Scene) -> list[tuple[bpy.types.Object, int]
     return out
 
 
+# ---------------------------------------------------------------- leaves (light stored per corner point)
+
+def prepare_foliage(sc: bpy.types.Scene) -> list[bpy.types.Object]:
+    """Join the leaf-card objects of each cell. Their light is baked per vertex, no light map needed."""
+    from mathutils import Vector
+
+    cells: dict[tuple[int, int], list] = {}
+    for o in static_objects(sc):
+        if o.get("wc_role") != "foliage" or o.get("wc_chunk"):
+            continue
+        pts = [o.matrix_world @ Vector(b) for b in o.bound_box]
+        cx = (min(p.x for p in pts) + max(p.x for p in pts)) / 2
+        cy = (min(p.y for p in pts) + max(p.y for p in pts)) / 2
+        cells.setdefault((int(math.floor(cx / CELL)), int(math.floor(cy / CELL))), []).append(o)
+    out = []
+    for (cx, cy), objs in sorted(cells.items()):
+        make_single_user(objs)
+        obj = geo.join(objs, f"leaf_{cx}_{cy}".replace("-", "m"))
+        obj["wc_chunk"] = "foliage"
+        out.append(obj)
+    return out
+
+
+def bake_vertex(sc: bpy.types.Scene, obj: bpy.types.Object) -> dict:
+    """Bake sun / sky / bounce light into a colour attribute: rgb = sqrt(light / IRR_RANGE), alpha = sun."""
+    started = time.time()
+    mesh = obj.data
+    geo.select_only([obj])
+    world_bg = sc.world.node_tree.nodes["Background"].inputs["Strength"]
+    sun = scene.sun_object(sc)
+    keep_strength, keep_hide = world_bg.default_value, sun.hide_render
+    sc.cycles.use_adaptive_sampling = False
+    sc.cycles.use_denoising = False
+    n = len(mesh.vertices)
+    got = {}
+    for kind in ("sun", "sky", "ind"):
+        attr = mesh.color_attributes.new(f"bk_{kind}", "FLOAT_COLOR", "POINT")
+        mesh.color_attributes.active_color = attr
+        sc.cycles.samples = {"sun": 96, "sky": 96, "ind": 192}[kind]
+        try:
+            if kind == "sun":
+                world_bg.default_value = 0.0
+                bpy.ops.object.bake(type="SHADOW", target="VERTEX_COLORS")
+            elif kind == "sky":
+                sun.hide_render = True
+                bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT"}, target="VERTEX_COLORS")
+            else:
+                bpy.ops.object.bake(type="DIFFUSE", pass_filter={"INDIRECT"}, target="VERTEX_COLORS")
+        finally:
+            world_bg.default_value = keep_strength
+            sun.hide_render = keep_hide
+        data = np.empty(n * 4, dtype=np.float32)
+        mesh.color_attributes[f"bk_{kind}"].data.foreach_get("color", data)
+        got[kind] = data.reshape(n, 4)[:, :3].copy()
+    for kind in ("sun", "sky", "ind"):
+        mesh.color_attributes.remove(mesh.color_attributes[f"bk_{kind}"])
+    final = np.ones((n, 4), dtype=np.float32)
+    final[:, :3] = np.sqrt(np.clip((got["sky"] + got["ind"]) / IRR_RANGE, 0.0, 1.0))
+    final[:, 3] = np.clip(got["sun"][:, 0], 0.0, 1.0)
+    col = mesh.color_attributes.new("Col", "FLOAT_COLOR", "POINT")
+    col.data.foreach_set("color", final.ravel())
+    mesh.color_attributes.active_color = col
+    mesh.color_attributes.render_color_index = mesh.color_attributes.find("Col")
+    print(f"[bake] {obj.name}: {n} leaf points in {time.time() - started:.1f}s")
+    return {"name": obj.name, "kind": "foliage"}
+
+
 # ---------------------------------------------------------------- whole scene
 
 def bake_scene(sc: bpy.types.Scene, name: str, origin) -> dict:
@@ -302,6 +369,8 @@ def bake_scene(sc: bpy.types.Scene, name: str, origin) -> dict:
         info = bake_chunk(sc, obj, res, out_dir)
         info.update(kind="struct")
         chunks.append(info)
+    for obj in prepare_foliage(sc):
+        chunks.append(bake_vertex(sc, obj))
     manifest = {"chunks": chunks, "irr_range": IRR_RANGE, "seconds": round(time.time() - started, 1)}
     (out_dir / "chunks.json").write_text(json.dumps(manifest, indent=1))
     print(f"[bake] {len(chunks)} chunks in {manifest['seconds']}s")

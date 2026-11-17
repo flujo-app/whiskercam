@@ -10,6 +10,7 @@
 //   LM_UV      baked maps, addressed by the mesh's second UV set          (buildings, kerbs, props)
 //   LM_PLANAR  baked maps, addressed by world position (top-down)         (ground, markings, litter)
 //   LM_VERTEX  baked into vertex colours                                  (leaves)
+//   LM_GROUND  looked up in one small light picture of the whole ground      (weeds, grass)
 //   LM_PROBE   one value for the whole object, updated as it moves        (cats, loose things)
 
 export const worldVertex = /* glsl */ `
@@ -48,8 +49,9 @@ void main() {
     // leaves and blades sway; anchored parts (low vertices in object space) move less
     float sway = uWind.z * clamp(position.y * WIND_HEIGHT_SCALE, 0.0, 1.0);
     float phase = dot(wp.xz, vec2(0.37, 0.53));
-    wp.xz += uWind.xy * sway * (sin(uTime * 1.7 + phase) * 0.6 + sin(uTime * 4.3 + phase * 2.7) * 0.25);
-    wp.y += sway * 0.2 * sin(uTime * 3.1 + phase * 1.9);
+    float flutter = sin(uTime * 6.3 + dot(position, vec3(7.1, 3.3, 5.7)));
+    wp.xz += uWind.xy * sway * (sin(uTime * 1.7 + phase) * 0.6 + sin(uTime * 4.3 + phase * 2.7) * 0.25 + flutter * 0.18);
+    wp.y += sway * 0.2 * sin(uTime * 3.1 + phase * 1.9) + sway * 0.12 * flutter;
   #endif
 
   vWorldPos = wp.xyz;
@@ -88,6 +90,8 @@ uniform sampler2D uLmSun;
 uniform sampler2D uLmIrr;
 uniform vec2 uLmSunSize;
 uniform float uIrrRange;
+uniform sampler2D uGroundLight;   // LM_GROUND: left half sky + bounce light, right half sun
+uniform vec4 uGroundXform;
 uniform vec3 uProbeIrrUp;     // LM_PROBE: light on up-facing / down-facing surfaces
 uniform vec3 uProbeIrrDown;
 uniform float uProbeSun;
@@ -218,7 +222,7 @@ void main() {
   vec3 V = normalize(cameraPosition - vWorldPos);
   float dist = length(cameraPosition - vWorldPos);
   vec3 Ng = normalize(vNormal);
-  #ifdef DOUBLE_SIDED
+  #if defined(DOUBLE_SIDED) && !defined(KEEP_NORMAL)
     if (!gl_FrontFacing) Ng = -Ng;
   #endif
 
@@ -299,6 +303,11 @@ void main() {
   #elif defined(LM_VERTEX)
     sunVis = vBaked.a;
     irr = vBaked.rgb * vBaked.rgb * uIrrRange;
+  #elif defined(LM_GROUND)
+    vec2 guv = clamp(vWorldPos.xz * uGroundXform.xy + uGroundXform.zw, 0.003, 0.997);
+    vec3 e = texture2D(uGroundLight, vec2(guv.x * 0.5, guv.y)).rgb;
+    irr = e * e * uIrrRange;
+    sunVis = texture2D(uGroundLight, vec2(guv.x * 0.5 + 0.5, guv.y)).r;
   #else
     sunVis = uProbeSun;
     irr = mix(uProbeIrrDown, uProbeIrrUp, N.y * 0.5 + 0.5);

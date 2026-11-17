@@ -45,7 +45,8 @@ def bm_to_object(bm: bmesh.types.BMesh, name: str, mat=None, coll=None, smooth: 
 
 def select_only(objs: Iterable[bpy.types.Object]) -> None:
     for o in bpy.context.view_layer.objects:
-        o.select_set(False)
+        if o is not None:
+            o.select_set(False)
     first = None
     for o in objs:
         o.select_set(True)

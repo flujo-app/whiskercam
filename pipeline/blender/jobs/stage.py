@@ -57,7 +57,8 @@ def main(args: list[str]) -> None:
     cats = info.get("cat") or [(fx + radius * 0.9, fy - radius * 1.1, -40.0), (fx - radius * 0.5, fy - radius * 0.7, 35.0),
                                (fx + radius * 0.25, fy - radius * 0.45, -25.0)]
     for i, (cx, cy, heading) in enumerate(cats):
-        render.catcam(sc, f"cat{tag}_{i}", (cx, cy, 0.11), heading, pitch_deg=4.0, res=(432, 768), samples=opt.samples, out_dir=out_dir)
+        ground = 0.14 if cy > 0.15 else 0.0     # the stage pavement is a kerb height above the road
+        render.catcam(sc, f"cat{tag}_{i}", (cx, cy, ground + 0.11), heading, pitch_deg=4.0, res=(432, 768), samples=opt.samples, out_dir=out_dir)
     if opt.top:
         render.top_view(sc, f"top{tag}", (fx, fy), radius * 3.2, res=(800, 800), samples=16, out_dir=out_dir)
     if opt.save:

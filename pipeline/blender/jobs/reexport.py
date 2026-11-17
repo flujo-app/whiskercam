@@ -17,4 +17,4 @@ def main(args: list[str]) -> None:
     opt = ap.parse_args(args)
     bpy.ops.wm.open_mainfile(filepath=str(paths.BUILD / "blend" / f"{opt.name}_baked.blend"))
     manifest = json.loads((paths.BUILD / "bake" / opt.name / "chunks.json").read_text())
-    export.export_world(bpy.context.scene, opt.name, manifest, P.START, P.START_HEADING)
+    export.export_world(bpy.context.scene, opt.name, manifest, P.START, P.START_HEADING, extra=P.game_info(paths.ensure(paths.BUILD / "export" / opt.name)))
