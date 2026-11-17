@@ -1,10 +1,12 @@
 {
   "look": [
     { "name": "road_east", "pose": { "x": -6, "y": 0.11, "z": 18.5, "heading": 80, "pitch": -8 } },
-    { "name": "road_east_run", "pose": { "x": -6, "y": 0.11, "z": 18.5, "heading": 80, "pitch": -10 }, "move": 6 },
     { "name": "road_west", "pose": { "x": 6, "y": 0.11, "z": 18.0, "heading": 265, "pitch": -8 } },
-    { "name": "garden", "pose": { "x": -3.4, "y": 0.45, "z": 30.4, "heading": 10, "pitch": -6 } },
     { "name": "pavement", "pose": { "x": -1, "y": 0.26, "z": 22.3, "heading": 95, "pitch": -8 } },
-    { "name": "kerb_close", "pose": { "x": 0, "y": 0.09, "z": 20.6, "heading": 110, "pitch": -4 } }
+    { "name": "cat_start", "cat": { "x": -3.4, "z": 30.4, "heading": 10 } },
+    { "name": "cat_trot", "cat": { "x": -6, "z": 18.5, "heading": 80 }, "sim": [{ "move": 1, "t": 1.5 }] },
+    { "name": "cat_run", "cat": { "x": -6, "z": 18.5, "heading": 80 }, "sim": [{ "move": 1, "sprint": true, "t": 1.6 }] },
+    { "name": "cat_run_north", "cat": { "x": 2, "z": 20.2, "heading": 20 }, "sim": [{ "move": 1, "sprint": true, "t": 1.1 }] },
+    { "name": "cat_jump", "cat": { "x": -6, "z": 18.5, "heading": 80 }, "sim": [{ "move": 1, "sprint": true, "t": 0.8 }, { "move": 1, "sprint": true, "jump": true, "t": 0.25 }] }
   ]
 }
