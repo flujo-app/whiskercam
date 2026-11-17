@@ -107,9 +107,13 @@ void main() {
 export const blurFragment = /* glsl */ `
 precision highp float;
 uniform sampler2D uColor;
-uniform sampler2D uVelocity;
+uniform sampler2D uVelocity;  // xy = how far the pixel moved, z = depth
 uniform float uMaxBlur;       // longest streak, as a fraction of the picture
 uniform float uSeed;
+uniform vec2 uNearFar;
+uniform float uFocusNear;     // closer than this (metres) the fixed-focus lens goes soft
+uniform float uNearBlur;      // blur radius right at the lens, as a fraction of the picture width
+uniform vec2 uAspect;         // (1, width / height)
 varying vec2 vUv;
 
 float hash12(vec2 p) {
@@ -118,20 +122,43 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
+float nearness(vec2 uv) {
+  float d = textureLod(uVelocity, uv, 0.0).z;
+  float zn = d * 2.0 - 1.0;
+  float z = 2.0 * uNearFar.x * uNearFar.y / ((uNearFar.y + uNearFar.x) - zn * (uNearFar.y - uNearFar.x));
+  return clamp(1.0 - z / uFocusNear, 0.0, 1.0);
+}
+
 void main() {
-  vec2 vel = texture2D(uVelocity, vUv).xy;
+  vec3 vd = textureLod(uVelocity, vUv, 0.0).xyz;
+  vec2 vel = vd.xy;
   float len = length(vel);
   if (len > uMaxBlur) vel *= uMaxBlur / len;
-  if (len < 0.0006) {
-    gl_FragColor = vec4(texture2D(uColor, vUv).rgb, 1.0);
+  float j = hash12(gl_FragCoord.xy + uSeed);
+
+  // things right in front of the lens (the chin, whiskers, leaves brushing past) are out of focus;
+  // look around a little so their soft edges also spread over what is behind them
+  float near = nearness(vUv);
+  float ang0 = j * 6.2831;
+  for (int i = 0; i < 4; i++) {
+    float a = ang0 + float(i) * 1.5708;
+    near = max(near, 0.8 * nearness(vUv + vec2(cos(a), sin(a)) * uAspect * uNearBlur * 0.6));
+  }
+  float radius = uNearBlur * near * near;
+
+  if (len < 0.0006 && radius < 0.0008) {
+    gl_FragColor = vec4(textureLod(uColor, vUv, 0.0).rgb, 1.0);
     return;
   }
-  const int N = 12;
-  float j = hash12(gl_FragCoord.xy + uSeed) - 0.5;
+  const int N = 14;
   vec3 acc = vec3(0.0);
   for (int i = 0; i < N; i++) {
-    float t = (float(i) + 0.5 + j) / float(N) - 0.5;
-    acc += textureLod(uColor, vUv - vel * t, 0.0).rgb;
+    float f = (float(i) + 0.5) / float(N);
+    float t = f + (j - 0.5) / float(N) - 0.5;
+    // golden-angle spiral for the out-of-focus disc, a straight line for the motion streak
+    float a = float(i) * 2.39996 + ang0;
+    vec2 disc = vec2(cos(a), sin(a)) * sqrt(f) * radius * uAspect;
+    acc += textureLod(uColor, vUv - vel * t + disc, 0.0).rgb;
   }
   gl_FragColor = vec4(acc / float(N), 1.0);
 }

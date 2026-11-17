@@ -1,3 +1,6 @@
+import { Bot } from './game/bot';
+import { restLook, type CatLook, type Coat } from './game/cats';
+import type { FurCat } from './game/furcat';
 import { Game } from './game/game';
 import { loadSettings, QUALITY_SCALE, saveSettings } from './game/settings';
 import { Hud } from './ui/hud';
@@ -110,6 +113,10 @@ async function start(): Promise<void> {
   boot.classList.add('done');
 
   // hooks for automated test pictures (tools/shots.mjs) and for poking around in the console
+  const bot = new Bot(game);
+  let debugCat: FurCat | null = null;
+  let debugCoat: Coat = 'tabby';
+  const debugLook: CatLook = restLook();
   const api = {
     game,
     hud,
@@ -134,6 +141,43 @@ async function start(): Promise<void> {
       game.beginRun(settings);
       hud.resetRun();
       hud.show('none');
+    },
+    /** let the bot play for `seconds`; returns where the run stands afterwards */
+    bot(seconds: number, goal: 'brother' | number = 'brother', drawEvery = 1) {
+      bot.goal = goal;
+      const t0 = performance.now();
+      game.simWith((dt) => bot.controls(dt), seconds, drawEvery);
+      const s = game.session;
+      return {
+        phase: s.phase,
+        views: s.score.views,
+        hype: s.score.hype,
+        turf: s.score.turf,
+        battery: Math.round(s.battery),
+        counts: s.score.counts,
+        pos: [Math.round(game.player.x * 10) / 10, Math.round(game.player.y * 100) / 100, Math.round(game.player.z * 10) / 10],
+        brotherAway: Math.round(s.brother.distanceTo(game.player.x, game.player.z) * 10) / 10,
+        msPerFrame: (performance.now() - t0) / ((seconds * 60) / drawEvery),
+      };
+    },
+    /** put a test cat in front of the camera and pose it (for tuning fur and movement) */
+    cat(opts: Partial<CatLook> & { coat?: Coat; x?: number; z?: number; heading?: number } = {}) {
+      if (!game.catModel) return 'no cat model';
+      if (!debugCat || (opts.coat && opts.coat !== debugCoat)) {
+        if (debugCat) game.scene.remove(debugCat.root);
+        debugCoat = opts.coat ?? 'tabby';
+        debugCat = game.catModel.make(debugCoat, 'debug');
+        game.scene.add(debugCat.root);
+      }
+      const x = opts.x ?? game.player.x;
+      const z = opts.z ?? game.player.z - 1;
+      const g = game.physics.groundBelow(x, 3, z, 6);
+      debugCat.root.position.set(x, g ? g.y : 0, z);
+      debugCat.root.rotation.y = (-(opts.heading ?? 0) * Math.PI) / 180;
+      Object.assign(debugLook, opts);
+      debugCat.setLight(game.world.groundLight.sample(x, z, { r: 0, g: 0, b: 0, sun: 1 }));
+      debugCat.update(debugLook, 1 / 60);
+      return 'ok';
     },
     stats() {
       const r = game.renderer.info.render;
