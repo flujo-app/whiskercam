@@ -195,6 +195,30 @@ async function main() {
     }
   }
 
+  // ---- the cat model (shared by every set)
+  const catSrc = path.join(ROOT, 'build', 'export', 'cats');
+  if (fssync.existsSync(path.join(catSrc, 'cat.glb'))) {
+    const catOut = path.join(ROOT, 'public', 'assets', 'cats');
+    await fs.mkdir(catOut, { recursive: true });
+    for (const f of await fs.readdir(catSrc)) {
+      const src = path.join(catSrc, f);
+      if (f.endsWith('.glb')) {
+        if (newer(src, path.join(catOut, f))) {
+          await fs.copyFile(src, path.join(catOut, f));
+          made++;
+        }
+      } else if (f.endsWith('.png')) {
+        const dst = path.join(catOut, f.replace(/\.png$/, '.webp'));
+        if (newer(src, dst)) {
+          // the fur map holds numbers, not colours: keep it exact
+          const opts = f === 'cat_fur.png' ? { lossless: true, effort: 5 } : { quality: 90, smartSubsample: true, effort: 5 };
+          await sharp(src).removeAlpha().webp(opts).toFile(dst);
+          made++;
+        }
+      }
+    }
+  }
+
   // ---- everything else
   for (const f of ['collision.json', 'collision.bin', 'sky.png', 'kinds.png']) {
     if (fssync.existsSync(path.join(SRC, f))) await fs.copyFile(path.join(SRC, f), path.join(OUT, f));

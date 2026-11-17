@@ -63,7 +63,7 @@ void main() {
   float turn = aBlade.z + r1 * 6.2831;
   vec2 dir = vec2(cos(turn), sin(turn));
   vec2 side = vec2(-dir.y, dir.x);
-  float width = 0.0042 * (0.8 + 0.6 * r2) * (1.0 - t * 0.82) * step(1e-4, size);
+  float width = 0.0034 * (0.8 + 0.6 * r2) * (1.0 - t * 0.82) * step(1e-4, size);
   float lean = (0.25 + 0.6 * r3) * h;
   float phase = dot(root, vec2(0.71, 0.53));
   float gust = sin(uTime * 1.6 + phase) * 0.6 + sin(uTime * 3.7 + phase * 2.1) * 0.3 + sin(uTime * 7.9 + r1 * 40.0) * 0.12;
@@ -76,6 +76,7 @@ void main() {
   vec2 guv = clamp(root * uGroundXform.xy + uGroundXform.zw, 0.003, 0.997);
   vec3 e = texture2D(uGroundLight, vec2(guv.x * 0.5, guv.y)).rgb;
   vIrr = e * e * uIrrRange;
+  vIrr = mix(vec3(dot(vIrr, vec3(0.3, 0.5, 0.2))), vIrr, 0.55);
   vSun = texture2D(uGroundLight, vec2(guv.x * 0.5 + 0.5, guv.y)).r;
 
   vWorldPos = wp;
@@ -139,7 +140,7 @@ export class Grass {
   private info: KindsInfo | null = null;
 
   /** `patch` = edge length of the grassy square around the camera, `spacing` = distance between tufts. */
-  constructor(globals: Globals, patch = 13, spacing = 0.105, bladesPerTuft = 7) {
+  constructor(globals: Globals, patch = 13, spacing = 0.085, bladesPerTuft = 8) {
     const n = Math.floor(patch / spacing);
     const realPatch = n * spacing;
     const verts = bladesPerTuft * 5;
@@ -196,8 +197,8 @@ export class Grass {
         uSunColor: globals.uSunColor,
         uFogColor: globals.uFogColor,
         uFogDensity: globals.uFogDensity,
-        uRootColor: { value: new THREE.Color(0.018, 0.045, 0.012) },
-        uTipColor: { value: new THREE.Color(0.075, 0.16, 0.035) },
+        uRootColor: { value: new THREE.Color(0.014, 0.034, 0.01) },
+        uTipColor: { value: new THREE.Color(0.05, 0.105, 0.028) },
       },
     });
     this.mesh = new THREE.Mesh(geo, this.mat);

@@ -45,6 +45,7 @@ export function makeGlobals() {
     uFogColor: { value: new THREE.Color(0.6, 0.75, 1.0) },
     uFogDensity: { value: 0.0012 },
     uIrrRange: { value: 4 },
+    uShadeColour: { value: 0.55 },
     uShadowNear: { value: white as THREE.Texture },
     uShadowFar: { value: white as THREE.Texture },
     uShadowNearMat: { value: new THREE.Matrix4() },
@@ -212,6 +213,7 @@ export class Materials {
         defines.ALPHATEST = 1;
         defines.TRANSLUCENT = 1;
         defines.KEEP_NORMAL = 1; // cards are lit with the hedge's outward direction on both faces
+        (u.uColor.value as THREE.Color).setRGB(0.78, 0.8, 0.72); // sunlit leaves photograph darker than they scan
         defines.WIND = 1;
         defines.WIND_HEIGHT_SCALE = '0.6';
         side = THREE.DoubleSide;

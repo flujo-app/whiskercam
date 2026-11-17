@@ -20,6 +20,8 @@ precision highp float;
   // instanceMatrix is declared by three.js
 #endif
 
+#include <skinning_pars_vertex>
+
 attribute vec2 uv1;
 #ifdef LM_VERTEX
   attribute vec4 color;
@@ -37,13 +39,21 @@ varying vec2 vUv;
 varying vec2 vLmUv;
 
 void main() {
-  vec4 local = vec4(position, 1.0);
+  vec3 objectNormal = normal;
+  vec3 transformed = position;
+  #ifdef USE_SKINNING
+    // bones (eyes and other parts that ride on a cat's skeleton)
+    #include <skinbase_vertex>
+    #include <skinnormal_vertex>
+    #include <skinning_vertex>
+  #endif
+  vec4 local = vec4(transformed, 1.0);
   mat4 world = modelMatrix;
   #ifdef USE_INSTANCING
     world = modelMatrix * instanceMatrix;
   #endif
   vec4 wp = world * local;
-  vec3 n = normalize(mat3(world) * normal);
+  vec3 n = normalize(mat3(world) * objectNormal);
 
   #ifdef WIND
     // leaves and blades sway; anchored parts (low vertices in object space) move less
@@ -96,6 +106,7 @@ uniform vec3 uProbeIrrUp;     // LM_PROBE: light on up-facing / down-facing surf
 uniform vec3 uProbeIrrDown;
 uniform float uProbeSun;
 
+uniform float uShadeColour;   // 1 = shade as blue as the sky makes it, 0 = grey
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;       // irradiance on a surface facing the sun
 uniform vec3 uSkyUp;          // white-surface brightness under the open sky (for "how enclosed is this spot")
@@ -312,6 +323,8 @@ void main() {
     sunVis = uProbeSun;
     irr = mix(uProbeIrrDown, uProbeIrrUp, N.y * 0.5 + 0.5);
   #endif
+  // a camera balanced for daylight shows shade less blue than the raw sky light is
+  irr = mix(vec3(dot(irr, vec3(0.3, 0.5, 0.2))), irr, uShadeColour);
   sunVis *= liveShadow(vWorldPos, Ng);
 
   // ---- sunlight

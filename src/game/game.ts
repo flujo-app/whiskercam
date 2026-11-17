@@ -6,10 +6,11 @@ import { LensRig } from '../engine/lens';
 import { Physics } from '../engine/physics';
 import { Post } from '../engine/post';
 import { Recorder } from '../engine/recorder';
-import { LiveShadows, SHADOW_LAYER } from '../engine/shadows';
+import { LiveShadows } from '../engine/shadows';
 import { Sky } from '../engine/sky';
 import { loadWorld, type LoadedWorld } from '../engine/world';
-import { StandInCat, type CatVisualFactory, type Coat } from './cats';
+import { StandInCat, type CatVisual, type CatVisualFactory, type Coat } from './cats';
+import { CatModel } from './furcat';
 import { Nav } from './nav';
 import { Player } from './player';
 import { Props } from './props';
@@ -43,6 +44,7 @@ export class Game {
   session!: Session;
   /** how cats are drawn; swapped for the furry model once that is loaded */
   catFactory!: CatVisualFactory;
+  catModel: CatModel | null = null;
   /** when set, the camera ignores the cat and sits here (test pictures, free look) */
   freeCam: { x: number; y: number; z: number; heading: number; pitch: number; roll: number } | null = null;
   time = 0;
@@ -55,7 +57,10 @@ export class Game {
   private last = 0;
   private running = false;
   private readonly focus = new THREE.Vector3();
-  private standIn!: THREE.Group;
+  /** the player's own cat: its chin and paws are in every picture, and it throws the shadow */
+  playerCat: CatVisual | null = null;
+  private playerCoat: Coat = 'ginger';
+  private readonly lightSample = { r: 0, g: 0, b: 0, sun: 1 };
 
   private constructor(readonly renderer: THREE.WebGLRenderer, readonly canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     this.scene.add(this.rig.rig);
@@ -100,9 +105,17 @@ export class Game {
     game.player = new Player(game.physics);
     const [sx, sy, sz] = game.world.info.spawn.pos;
     game.player.place(sx, sy, sz, game.world.info.spawn.heading);
-    game.addStandIn();
     game.catFactory = (coat: Coat, name: string) => new StandInCat(game.world.materials, coat, name);
+    try {
+      const coats: Coat[] = ['tabby', 'ginger', 'black', 'white', 'grey', 'tux'];
+      const model = await CatModel.load(`${import.meta.env.BASE_URL}assets/cats/`, game.world.materials, coats);
+      game.catModel = model;
+      game.catFactory = (coat: Coat, name: string) => model.make(coat, name);
+    } catch (err) {
+      console.warn('cat model not available, using stand-ins', err);
+    }
     game.newSession();
+    game.setPlayerCoat('ginger');
     say(1, 'Ready');
     return game;
   }
@@ -129,6 +142,7 @@ export class Game {
     this.input.mouseSensitivity = 0.11 * s.sensitivity;
     this.input.touchSensitivity = 0.28 * s.sensitivity;
     this.player.motion = s.motion;
+    this.setPlayerCoat(s.coat);
     this.audio.setVolume(s.volume);
   }
 
@@ -158,34 +172,13 @@ export class Game {
     this.newSession();
     this.post.cut();
   }
-  /** A rough cat shape that only exists in the shadow pass, until the real cat model is loaded. */
-  private addStandIn(): void {
-    const mat = new THREE.MeshBasicMaterial();
-    const g = new THREE.Group();
-    const bodyGeo = new THREE.CapsuleGeometry(0.06, 0.26, 4, 10);
-    bodyGeo.rotateX(Math.PI / 2);
-    const body = new THREE.Mesh(bodyGeo, mat);
-    body.position.set(0, 0.17, 0.12);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.052, 12, 10), mat);
-    head.position.set(0, 0.215, -0.1);
-    const earGeo = new THREE.ConeGeometry(0.022, 0.05, 6);
-    const earL = new THREE.Mesh(earGeo, mat);
-    earL.position.set(-0.032, 0.268, -0.095);
-    const earR = new THREE.Mesh(earGeo, mat);
-    earR.position.set(0.032, 0.268, -0.095);
-    const tailGeo = new THREE.CylinderGeometry(0.012, 0.016, 0.26, 6);
-    tailGeo.rotateX(Math.PI / 2.4);
-    const tail = new THREE.Mesh(tailGeo, mat);
-    tail.position.set(0, 0.2, 0.38);
-    g.add(body, head, earL, earR, tail);
-    for (const [x, z] of [[-0.04, -0.02], [0.04, -0.02], [-0.045, 0.26], [0.045, 0.26]] as const) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.014, 0.16, 6), mat);
-      leg.position.set(x, 0.08, z);
-      g.add(leg);
-    }
-    g.traverse((o) => o.layers.set(SHADOW_LAYER));
-    this.standIn = g;
-    this.scene.add(g);
+  /** (Re)create the player's cat in the chosen coat. */
+  setPlayerCoat(coat: Coat): void {
+    if (this.playerCat && coat === this.playerCoat) return;
+    if (this.playerCat) this.scene.remove(this.playerCat.root);
+    this.playerCoat = coat;
+    this.playerCat = this.catFactory(coat, 'player');
+    this.scene.add(this.playerCat.root);
   }
 
   /** The picture is always upright (9:16 at most), like the phone clip it imitates. */
@@ -232,8 +225,20 @@ export class Game {
       p.apply(this.rig);
       this.focus.set(p.x, p.y, p.z);
     }
-    this.standIn.position.set(p.x, p.y, p.z);
-    this.standIn.rotation.y = -THREE.MathUtils.degToRad(p.heading);
+    const cat = this.playerCat;
+    if (cat) {
+      // hang the cat on the camera: its collar sits where the lens is, its paws stay on the ground
+      const yaw = -THREE.MathUtils.degToRad(p.heading);
+      const c = cat.collarAt;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      cat.root.position.set(p.camX - (c.x * cos + c.z * sin), p.y, p.camZ - (-c.x * sin + c.z * cos));
+      cat.root.rotation.y = yaw;
+      const look = this.session.playerLook;
+      look.headLow = c.y - (p.camY - p.y);
+      cat.setLight(this.world.groundLight.sample(p.x, p.z, this.lightSample));
+      cat.update(look, dt);
+    }
     this.grass?.update(this.rig.rig.position);
     this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z);
     this.renderer.info.reset();
@@ -250,6 +255,15 @@ export class Game {
       controls.jump = false;
       controls.yaw = 0;
       this.render(STEP);
+    }
+  }
+
+  /** Like sim, but asks `decide` for the controls every step (the self-playing bot). */
+  simWith(decide: (dt: number) => Controls, seconds: number, drawEvery = 1): void {
+    const steps = Math.max(1, Math.round(seconds / STEP));
+    for (let i = 0; i < steps; i++) {
+      this.update(decide(STEP));
+      if (i % drawEvery === 0) this.render(STEP * drawEvery);
     }
   }
 

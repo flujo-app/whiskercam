@@ -65,6 +65,8 @@ export class Player {
   /** seconds the cat has been standing still */
   idle = 0;
   private lastFoot = -1;
+  private safeTimer = 0;
+  private readonly safe = { x: 0, y: 0, z: 0 };
   private fallSpeed = 0;
   private time = 0;
 
@@ -75,6 +77,9 @@ export class Player {
   place(x: number, y: number, z: number, heading: number): void {
     const ground = this.physics.groundBelow(x, y + 1.5, z, 6);
     this.body.teleport(x, ground ? ground.y : y, z);
+    this.safe.x = x;
+    this.safe.y = ground ? ground.y : y;
+    this.safe.z = z;
     this.heading = heading;
     this.speed = 0;
     this.lookPitch = 0;
@@ -159,6 +164,18 @@ export class Player {
     if (body.grounded) {
       const ground = this.physics.groundBelow(body.x, body.y, body.z, 0.4);
       if (ground) this.surface = ground.surface;
+      // remember solid ground now and then, in case the cat ever falls out of the world
+      this.safeTimer += dt;
+      if (this.safeTimer > 0.5) {
+        this.safeTimer = 0;
+        this.safe.x = body.x;
+        this.safe.y = body.feetY;
+        this.safe.z = body.z;
+      }
+    }
+    if (body.feetY < this.safe.y - 25) {
+      body.teleport(this.safe.x, this.safe.y + 0.05, this.safe.z);
+      this.speed = 0;
     }
 
     // ---- stride cycle and footfalls

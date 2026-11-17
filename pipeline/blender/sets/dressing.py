@@ -80,7 +80,7 @@ class Dresser:
     def lamps(self) -> None:
         spots = [(-30, -23.9, 0), (-8, -23.9, 0), (14, -23.9, 0), (34, -23.4, 20), (41.6, -8, 90), (41.6, 8, 90),
                  (34, 23.4, 160), (12, 23.9, 180), (-12, 23.9, 180), (-34, 23.4, 200), (-41.6, 10, 270), (-41.6, -10, 270),
-                 (14, 0, 0), (-17, 0.0, 90)]
+                 (16.2, 2.2, 0), (-17, 2.0, 90)]
         for i, (x, y, rot) in enumerate(spots):
             self.put("street_lamp_01", x, y, rot, lm=0.6, name=f"lamp{i}")
 
@@ -125,7 +125,8 @@ class Dresser:
 
     def plaza(self) -> None:
         # four benches around the paved square, planters at its corners
-        for x, y, rot in [(14, 6.9, 0), (14, -6.9, 180), (5.1, 0, 90), (22.9, 0, 270)]:
+        # (kept clear of the footpaths, which the other cats run along)
+        for x, y, rot in [(9.5, 6.9, 0), (18.5, -6.9, 180), (5.1, 3.4, 90), (22.9, -3.2, 270)]:
             if not self.inside(x, y):
                 continue
             loc = (x, y, self.h(x, y))

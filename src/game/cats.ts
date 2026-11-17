@@ -35,9 +35,11 @@ export interface CatLook {
   flinch: number;
   /** 0..1 fur on end, back arched */
   puff: number;
+  /** metres the throat is carried below its normal height (neck stretched low when running) */
+  headLow: number;
 }
 
-export const restLook = (): CatLook => ({ stance: 'stand', speed: 0, phase: 0, pawLeft: 0, pawRight: 0, headTurn: 0, flinch: 0, puff: 0 });
+export const restLook = (): CatLook => ({ stance: 'stand', speed: 0, phase: 0, pawLeft: 0, pawRight: 0, headTurn: 0, flinch: 0, puff: 0, headLow: 0 });
 
 /** How a cat is drawn. The stand-in below is replaced by the furry model once that is loaded. */
 export interface CatVisual {
@@ -45,6 +47,8 @@ export interface CatVisual {
   update(look: CatLook, dt: number): void;
   setLight(sample: GroundSample): void;
   setVisible(mainView: boolean): void;
+  /** where the collar sits in the cat's own space (x right, y up, z back), for hanging the camera on it */
+  readonly collarAt: THREE.Vector3;
 }
 
 export type CatVisualFactory = (coat: Coat, name: string) => CatVisual;
@@ -52,6 +56,7 @@ export type CatVisualFactory = (coat: Coat, name: string) => CatVisual;
 /** Placeholder cat made of a few rounded shapes; enough to test chases and fights. */
 export class StandInCat implements CatVisual {
   readonly root = new THREE.Group();
+  readonly collarAt = new THREE.Vector3(0, 0.175, -0.19);
   private readonly mat: THREE.ShaderMaterial;
   private readonly body: THREE.Mesh;
   private readonly head: THREE.Group;

@@ -28,6 +28,10 @@ export interface LookSettings {
   adaptBrighter: number;
   adaptDarker: number;
   fringe: number;
+  /** closer than this many metres things go out of focus (small fixed-focus lens) */
+  focusNear: number;
+  /** how soft: blur radius right at the lens, as a fraction of the picture width */
+  nearBlur: number;
 }
 
 export const defaultLook: LookSettings = {
@@ -44,6 +48,8 @@ export const defaultLook: LookSettings = {
   adaptBrighter: 0.3,
   adaptDarker: 0.9,
   fringe: 0.004,
+  focusNear: 0.17,
+  nearBlur: 0.035,
 };
 
 function pass(fragmentShader: string, uniforms: Record<string, THREE.IUniform>, glsl3 = false): THREE.ShaderMaterial {
@@ -115,6 +121,10 @@ export class Post {
       uVelocity: { value: null },
       uMaxBlur: { value: 0.08 },
       uSeed: { value: 0 },
+      uNearFar: { value: new THREE.Vector2(0.02, 600) },
+      uFocusNear: { value: 0.16 },
+      uNearBlur: { value: 0.03 },
+      uAspect: { value: new THREE.Vector2(1, 1) },
     });
     this.downMat = pass(downFragment, {
       uTex: { value: null },
@@ -269,6 +279,10 @@ export class Post {
     bu.uVelocity.value = this.lensRT.textures[1];
     bu.uMaxBlur.value = look.maxBlur;
     bu.uSeed.value = (this.time * 60) % 97;
+    (bu.uNearFar.value as THREE.Vector2).set(rig.up.near, rig.up.far);
+    bu.uFocusNear.value = look.focusNear;
+    bu.uNearBlur.value = look.nearBlur;
+    (bu.uAspect.value as THREE.Vector2).set(1, this.width / this.height);
     this.draw(this.blurMat, this.blurRT);
 
     // 4. glow
