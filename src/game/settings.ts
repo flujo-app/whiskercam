@@ -51,4 +51,6 @@ export function saveSettings(s: Settings): void {
 }
 
 /** Render scale for each quality step. */
-export const QUALITY_SCALE = [0.62, 0.82, 1.0];
+export const QUALITY_SCALE = [0.7, 0.85, 1.0];
+/** Most picture lines drawn for each quality step. */
+export const QUALITY_LINES = [960, 1280, 1600];

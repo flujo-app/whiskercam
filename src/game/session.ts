@@ -241,7 +241,7 @@ export class Session {
         this.sfx.push({ name: 'chirp', x: b.x, z: b.z });
       }
     }
-    b.sync(dt);
+    b.sync(dt, p.camX, p.camZ);
   }
 
   // ---------------------------------------------------------------- rivals and duels
@@ -430,7 +430,7 @@ export class Session {
         look.pawRight = Math.max(0, look.pawRight - dt * 4);
         look.flinch = Math.max(0, look.flinch - dt * 2);
       }
-      r.npc.sync(dt);
+      r.npc.sync(dt, p.camX, p.camZ);
     }
   }
 
@@ -504,8 +504,8 @@ export class Session {
         if (this.endTimer <= 0) this.phase = 'ended';
       }
       // on the title screen the other cats still sit about and look alive
-      this.brother.sync(dt);
-      for (const r of this.rivals) r.npc.sync(dt);
+      this.brother.sync(dt, this.player.camX, this.player.camZ);
+      for (const r of this.rivals) r.npc.sync(dt, this.player.camX, this.player.camZ);
       return;
     }
 

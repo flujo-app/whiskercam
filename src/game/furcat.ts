@@ -221,11 +221,12 @@ export class FurCat implements CatVisual {
     head.add(lines);
   }
 
-  /** Fewer shells for cats far from the camera. */
+  /** Fewer shells for cats far from the camera; none at all when too far to see fur. */
   setDetail(distance: number): void {
-    const n = distance < 4 ? this.shellCount : distance < 12 ? 10 : 6;
+    const n = distance < 2.5 ? this.shellCount : distance < 7 ? 12 : distance < 16 ? 8 : distance < 34 ? 5 : 3;
     this.shellGeo.instanceCount = n;
     this.fur.uniforms.uShells.value = n;
+    this.root.visible = distance < 75;
   }
 
   setLight(sample: GroundSample): void {

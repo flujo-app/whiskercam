@@ -47,6 +47,8 @@ export interface CatVisual {
   update(look: CatLook, dt: number): void;
   setLight(sample: GroundSample): void;
   setVisible(mainView: boolean): void;
+  /** how far the camera is, so far-away cats can be drawn more cheaply (or not at all) */
+  setDetail?(distance: number): void;
   /** where the collar sits in the cat's own space (x right, y up, z back), for hanging the camera on it */
   readonly collarAt: THREE.Vector3;
 }
@@ -218,8 +220,9 @@ export class Npc {
     return true;
   }
 
-  /** Stick to the ground, advance the stride, refresh light, push the pose to the drawing. */
-  sync(dt: number): void {
+  /** Stick to the ground, advance the stride, refresh light, push the pose to the drawing. (viewX, viewZ) = where the camera is. */
+  sync(dt: number, viewX = this.x, viewZ = this.z): void {
+    this.visual.setDetail?.(Math.hypot(this.x - viewX, this.z - viewZ));
     const g = this.physics.groundBelow(this.x, this.y + 0.6, this.z, 2);
     if (g) this.y += (g.y - this.y) * (dt > 0 ? 1 - Math.exp(-18 * dt) : 1);
     const v = Math.abs(this.speed);

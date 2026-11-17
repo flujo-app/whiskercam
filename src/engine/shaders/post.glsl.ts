@@ -256,6 +256,10 @@ uniform float uSaturation;
 uniform float uContrast;
 uniform vec3 uWhiteBalance;
 uniform vec2 uFrame;
+uniform sampler2D uDepth;     // lens output: z = depth (to see whether the sun is hidden)
+uniform vec2 uSunUv;          // where the sun is in the picture
+uniform float uSunOn;         // 0 when the sun is behind the camera
+uniform float uFlare;
 varying vec2 vUv;
 
 float hash12(vec2 p) {
@@ -281,6 +285,29 @@ void main() {
   float metered = max(texture2D(uMeter, vec2(0.5)).r, 1e-4);
   float exposure = clamp(uKey / metered, 0.02, 40.0) * uExposureBias;
   vec3 c = (hdr * exposure + texture2D(uBloom, vUv).rgb * uBloomAmount) * uWhiteBalance;
+
+  // sun in the picture: a small cheap lens answers with a star, a veil and a couple of ghosts
+  if (uSunOn > 0.0 && uFlare > 0.0) {
+    float seen = 0.0;
+    for (int i = 0; i < 5; i++) {
+      vec2 o = vec2(float(i % 3) - 1.0, float(i / 3) - 0.5) * 0.004;
+      seen += step(0.99999, texture2D(uDepth, uSunUv + o).z);
+    }
+    seen = seen * 0.2 * uSunOn;
+    if (seen > 0.0) {
+      vec2 aspect = vec2(uFrame.x / uFrame.y, 1.0);
+      vec2 d = (vUv - uSunUv) * aspect;
+      float r = length(d);
+      float ang = atan(d.y, d.x);
+      float star = pow(abs(cos(ang * 3.0 + 0.4)), 40.0) * 0.012 / (r + 0.012) + pow(abs(cos(ang * 3.0 + 1.3)), 90.0) * 0.006 / (r + 0.02);
+      float veil = 0.05 / (1.0 + pow(r / 0.3, 2.0));
+      vec2 axis = vec2(0.5) - uSunUv;
+      vec2 g1 = (vUv - (vec2(0.5) + axis * 0.45)) * aspect;
+      vec2 g2 = (vUv - (vec2(0.5) + axis * 0.95)) * aspect;
+      vec3 ghosts = vec3(0.35, 0.9, 0.5) * smoothstep(0.045, 0.035, length(g1)) * 0.035 + vec3(0.9, 0.5, 0.3) * smoothstep(0.085, 0.07, length(g2)) * 0.02;
+      c += (vec3(1.0, 0.95, 0.85) * (star + veil) + ghosts) * seen * uFlare;
+    }
+  }
 
   // dark corners
   vec2 p = (vUv * 2.0 - 1.0) * uFrame;

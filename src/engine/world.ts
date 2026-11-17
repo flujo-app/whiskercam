@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { Materials, type LightRef, type MatDesc } from './materials';
 
 export interface ChunkInfo {
@@ -29,6 +30,7 @@ export interface WorldInfo {
   nav?: { nodes: [number, number][]; edges: [number, number][]; ring: number[]; home: number };
   rivals?: { name: string; coat: string; pos: [number, number]; facing: number; level: number; radius: number; turf: string }[];
   brother?: { name: string; coat: string; pos: [number, number]; facing: number };
+  pigeons?: [number, number][];
   spawn: { pos: [number, number, number]; heading: number };
 }
 
@@ -166,6 +168,7 @@ export async function loadWorld(
   g.uIrrRange.value = info.irr_range;
 
   const gltf = new GLTFLoader();
+  gltf.setMeshoptDecoder(MeshoptDecoder);
   const texLoader = new THREE.TextureLoader();
   const group = new THREE.Group();
   group.name = 'world';
