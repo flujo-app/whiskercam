@@ -344,7 +344,7 @@ void main() {
   #ifdef TRANSLUCENT
     // sun shining through a leaf from behind
     float back = max(dot(-N, L), 0.0);
-    color += diffuse * vec3(0.55, 0.75, 0.25) / PI * uSunColor * (back * sunVis * 0.55);
+    color += diffuse * vec3(0.5, 0.75, 0.25) / PI * uSunColor * (back * sunVis * 0.42);
   #endif
 
   // ---- sky + bounce light

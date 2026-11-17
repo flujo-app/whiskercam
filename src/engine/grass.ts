@@ -197,8 +197,8 @@ export class Grass {
         uSunColor: globals.uSunColor,
         uFogColor: globals.uFogColor,
         uFogDensity: globals.uFogDensity,
-        uRootColor: { value: new THREE.Color(0.014, 0.034, 0.01) },
-        uTipColor: { value: new THREE.Color(0.05, 0.105, 0.028) },
+        uRootColor: { value: new THREE.Color(0.02, 0.045, 0.012) },
+        uTipColor: { value: new THREE.Color(0.072, 0.122, 0.032) },
       },
     });
     this.mesh = new THREE.Mesh(geo, this.mat);

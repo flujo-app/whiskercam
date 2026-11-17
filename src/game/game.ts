@@ -68,6 +68,7 @@ export class Game {
   /** the player's own cat: its chin and paws are in every picture, and it throws the shadow */
   playerCat: CatVisual | null = null;
   private playerCoat: Coat = 'ginger';
+  private readonly collarNow = new THREE.Vector3();
   private readonly lightSample = { r: 0, g: 0, b: 0, sun: 1 };
 
   private constructor(readonly renderer: THREE.WebGLRenderer, readonly canvas: HTMLCanvasElement, readonly opts: GameOptions) {
@@ -262,9 +263,20 @@ export class Game {
       cat.root.position.set(p.camX - (c.x * cos + c.z * sin), p.y, p.camZ - (-c.x * sin + c.z * cos));
       cat.root.rotation.y = yaw;
       const look = this.session.playerLook;
-      look.headLow = c.y - (p.camY - p.y);
       cat.setLight(this.world.groundLight.sample(p.x, p.z, this.lightSample));
-      cat.update(look, dt);
+      if (cat.collarWorld) {
+        // the furry cat: pose it, measure where its collar ended up, and hang that point exactly on the lens.
+        // The chin and whiskers then sit in the same place in the picture whatever the body does.
+        look.headLow = 0;
+        cat.update(look, dt);
+        const at = cat.collarWorld(this.collarNow);
+        cat.root.position.x += p.camX - at.x;
+        cat.root.position.y += p.camY - at.y;
+        cat.root.position.z += p.camZ - at.z;
+      } else {
+        look.headLow = c.y - (p.camY - p.y);
+        cat.update(look, dt);
+      }
     }
     this.grass?.update(this.rig.rig.position);
     this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z);

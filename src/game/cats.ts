@@ -51,6 +51,8 @@ export interface CatVisual {
   setDetail?(distance: number): void;
   /** where the collar sits in the cat's own space (x right, y up, z back), for hanging the camera on it */
   readonly collarAt: THREE.Vector3;
+  /** where the collar is right now in the world, after the pose (the furry cat only) */
+  collarWorld?(out: THREE.Vector3): THREE.Vector3;
 }
 
 export type CatVisualFactory = (coat: Coat, name: string) => CatVisual;

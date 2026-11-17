@@ -35,7 +35,7 @@ TARGET_TPM = 22.0      # wanted light-map texels per metre for near-ground struc
 ATLAS_PAD = 6
 IRR_RANGE = 4.0        # irr pictures store sqrt(value / IRR_RANGE)
 SAMPLES = {"sun": 96, "sky": 128, "ind": 384}
-SKIP_ROLES = {"ground", "decal", "collider", "foliage", "scatter", "probe"}
+SKIP_ROLES = {"ground", "decal", "collider", "foliage", "scatter", "probe", "far"}
 
 PYENV = paths.BUILD / "pyenv" / "Scripts" / "python.exe"
 
@@ -371,6 +371,13 @@ def bake_scene(sc: bpy.types.Scene, name: str, origin) -> dict:
         chunks.append(info)
     for obj in prepare_foliage(sc):
         chunks.append(bake_vertex(sc, obj))
+    # far-away scenery gets no baked light at all: the game lights it with plain sun and sky
+    far = [o for o in static_objects(sc) if o.get("wc_role") == "far" and not o.get("wc_chunk")]
+    if far:
+        make_single_user(far)
+        obj = geo.join(far, "far_0")
+        obj["wc_chunk"] = "far"
+        chunks.append({"name": obj.name, "kind": "far"})
     manifest = {"chunks": chunks, "irr_range": IRR_RANGE, "seconds": round(time.time() - started, 1)}
     (out_dir / "chunks.json").write_text(json.dumps(manifest, indent=1))
     print(f"[bake] {len(chunks)} chunks in {manifest['seconds']}s")

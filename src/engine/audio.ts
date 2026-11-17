@@ -121,17 +121,22 @@ export class Audio {
         }
       }),
     );
-    this.startLoop('ambience', 0.55, (g) => (this.ambGain = g));
-    this.startLoop('purr', 0, (g) => (this.purrGain = g));
+    // the recordings loop without a seam at exactly these lengths (the MP3 files carry a sliver of silence after it)
+    this.startLoop('ambience', 0.55, 80.0, (g) => (this.ambGain = g));
+    this.startLoop('purr', 0, 4.65, (g) => (this.purrGain = g));
   }
 
-  private startLoop(key: string, gain: number, keep: (g: GainNode) => void): void {
+  private startLoop(key: string, gain: number, length: number, keep: (g: GainNode) => void): void {
     const ctx = this.ctx!;
     const buf = this.buffers.get(FILES[key][0]);
     if (!buf) return;
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.loop = true;
+    if (buf.duration > length) {
+      src.loopStart = 0;
+      src.loopEnd = length;
+    }
     const g = ctx.createGain();
     g.gain.value = gain;
     src.connect(g);

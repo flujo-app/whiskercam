@@ -1,6 +1,6 @@
 // Take test pictures of the game in a real (headless) browser.
 //
-//   node tools/shots.mjs <set> [--out build/shots] [--size 540x960] [--only name]
+//   node tools/shots.mjs <set> [--shots list] [--out build/shots] [--size 540x960] [--only name]
 //
 // Starts the dev server, opens the page in Edge with ?manual (frames only when asked),
 // moves the camera to each pose from tools/shots.json and saves a JPEG.
@@ -22,7 +22,7 @@ const size = opt('size', '540x960');
 const only = opt('only', null);
 const [W, H] = size.split('x').map(Number);
 
-const shots = JSON.parse(await fs.readFile(path.join(ROOT, 'tools', 'shots.json'), 'utf8'))[set] ?? [];
+const shots = JSON.parse(await fs.readFile(path.join(ROOT, 'tools', 'shots.json'), 'utf8'))[opt('shots', set)] ?? [];
 await fs.mkdir(outDir, { recursive: true });
 
 const server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 5199, strictPort: false } });

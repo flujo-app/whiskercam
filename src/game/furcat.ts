@@ -19,7 +19,11 @@ const TAU = Math.PI * 2;
  * All bones have their local X axis pointing to the cat's right, so every bend in the
  * side-view plane is a rotation about X; these signs make +angle mean "forwards / up / flex".
  */
-export const JOINT_SIGN: Record<string, number> = {
+export /** The collar camera hangs this far below the neck bone and this far ahead of it (metres). */
+const COLLAR_DROP = 0.082;
+const COLLAR_AHEAD = 0.047;
+
+const JOINT_SIGN: Record<string, number> = {
   // bones that point forwards (spine, neck, head): + tips the front end up
   spine: 1, neck: 1, head: 1,
   // bones that point backwards / down-back: + would tip them down, so lift = -1
@@ -73,6 +77,7 @@ export class FurCat implements CatVisual {
   readonly root = new THREE.Group();
   /** where the collar camera sits (under the throat), in the model's own space */
   readonly collarAt = new THREE.Vector3(0, 0.17, -0.19);
+  private neck: THREE.Object3D | null = null;
   shellCount = 18;
   private readonly bones = new Map<string, THREE.Bone>();
   private readonly rest = new Map<string, THREE.Quaternion>();
@@ -169,11 +174,24 @@ export class FurCat implements CatVisual {
     this.addWhiskers();
     const neck = this.bones.get('neck') ?? this.bones.get('chest');
     if (neck) {
-      // the collar hangs at the base of the neck, a little below and ahead of the bone
+      // the camera hangs from the collar: below the throat and a little ahead of it, clear of the chest fur
+      this.neck = neck;
       neck.getWorldPosition(this.collarAt);
-      this.collarAt.y -= 0.062;
-      this.collarAt.z -= 0.03;
+      this.collarAt.y -= COLLAR_DROP;
+      this.collarAt.z -= COLLAR_AHEAD;
     }
+  }
+
+  /** Where the collar camera hangs right now (world space), after the pose has been applied. */
+  collarWorld(out: THREE.Vector3): THREE.Vector3 {
+    if (!this.neck) return this.root.localToWorld(out.copy(this.collarAt));
+    this.root.updateMatrixWorld(true);
+    this.neck.getWorldPosition(out);
+    const yaw = this.root.rotation.y;
+    out.y -= COLLAR_DROP;
+    out.x -= Math.sin(yaw) * COLLAR_AHEAD;
+    out.z -= Math.cos(yaw) * COLLAR_AHEAD;
+    return out;
   }
 
   /** Long white whiskers on both sides of the muzzle: thin lines that ride on the head. */
@@ -190,9 +208,9 @@ export class FurCat implements CatVisual {
       for (let k = 0; k < 6; k++) {
         const row = k % 3;
         const col = Math.floor(k / 3);
-        const x0 = side * (0.013 + col * 0.006);
-        const y0 = 0.262 - row * 0.006;
-        const z0 = -0.253 + col * 0.008;
+        const x0 = side * (0.011 + col * 0.006);
+        const y0 = 0.2395 - row * 0.005;
+        const z0 = -0.251 + col * 0.007;
         const len = 0.062 + 0.018 * ((k * 37) % 5) / 4;
         const up = (1 - row) * 0.22 - 0.05;          // top row fans up, bottom row down
         const fwd = -0.1 - col * 0.25;
@@ -298,7 +316,7 @@ export class FurCat implements CatVisual {
       const b = (base: string) => (this.bones.has(`${base}.${side}`) ? `${base}.${side}` : `${base}${side}`);
       // front: trot = diagonals together, gallop = both fronts nearly together
       const fPhase = a + (s === 0 ? 0 : Math.PI) * (1 - gallop) + (s === 0 ? 0 : 0.6) * gallop;
-      const fSwing = Math.sin(fPhase) * (0.3 + 0.26 * run + 0.3 * gallop) * moving;
+      const fSwing = Math.sin(fPhase) * (0.3 + 0.2 * run + 0.08 * gallop) * moving;
       const fLift = Math.max(0, Math.cos(fPhase)) * moving;
       const raised = s === 0 ? look.pawLeft : look.pawRight;
       // sitting tips the chest up; the front legs swing back under it so the paws stay planted
@@ -323,7 +341,7 @@ export class FurCat implements CatVisual {
     if (root && rp) {
       const bob = gallop * Math.abs(Math.sin(a)) * 0.022 + (1 - gallop) * Math.sin(a * 2) * 0.004 * moving;
       root.position.set(rp.x, rp.y, rp.z);
-      this.root.children[0].position.y = bob - sit * 0.145 - low * 0.085 + look.puff * 0.012;
+      this.root.children[0].position.y = bob - sit * 0.145 - low * 0.058 + look.puff * 0.012;
     }
 
     // ---- fur: stands on end when scared, trails behind when running

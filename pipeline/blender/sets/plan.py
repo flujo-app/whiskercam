@@ -234,7 +234,7 @@ def make_plan() -> Plan:
 RIVALS = [
     # name, coat, where it sits (x, y), which way it looks (compass degrees), how tough (1..3), turf radius
     {"name": "Big Ginger", "coat": "ginger", "pos": (-46.4, 9.6), "facing": 95.0, "level": 1, "radius": 7.0, "turf": "the bins"},
-    {"name": "Duchess", "coat": "white", "pos": (42.0, 3.9), "facing": 270.0, "level": 2, "radius": 7.5, "turf": "the car port"},
+    {"name": "Duchess", "coat": "white", "pos": (42.3, 5.1), "facing": 270.0, "level": 2, "radius": 7.5, "turf": "the car port"},
     {"name": "The Colonel", "coat": "tux", "pos": (14.0, 3.6), "facing": 180.0, "level": 3, "radius": 8.0, "turf": "the square"},
 ]
 BROTHER = {"name": "Rocket", "coat": "tabby", "pos": (-2.1, -29.4), "facing": 15.0}
@@ -299,8 +299,8 @@ def nav_graph() -> dict:
     edges.append((alley[4], len(nodes) - 2))
     spur([(-41.0, 0.0), (-47.5, 0.0)])
     spur([(-41.2, 9.4), (-44.6, 9.5)])
-    for y in (-9.0, 3.0, 10.0):
-        spur([(40.6, y), (42.6, y)])
+    for y in (-7.64, 5.09, 10.18):                  # the free bays of the car port
+        spur([(40.3, y), (42.6, y)])
     spur([(29.5, 22.8), (33.0, 26.5), (38.0, 27.5)])
     return {
         "nodes": [[x, -y] for x, y in nodes],          # game axes: (x, z)
