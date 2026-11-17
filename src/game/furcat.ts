@@ -68,8 +68,11 @@ export class CatModel {
     return new CatModel(gltf.scene, map, fur, eyes, materials);
   }
 
+  /** how many fur layers a cat right in front of the camera gets */
+  shells = 16;
+
   make(coat: Coat, name: string): FurCat {
-    return new FurCat(cloneSkinned(this.template), this.coats.get(coat) ?? [...this.coats.values()][0], this.furMap, this.eyeMap, this.materials, name);
+    return new FurCat(cloneSkinned(this.template), this.coats.get(coat) ?? [...this.coats.values()][0], this.furMap, this.eyeMap, this.materials, name, this.shells);
   }
 }
 
@@ -94,7 +97,8 @@ export class FurCat implements CatVisual {
   private blink = 0;
   private whiskerMat: THREE.LineBasicMaterial | null = null;
 
-  constructor(model: THREE.Object3D, coat: THREE.Texture, furMap: THREE.Texture, eyeMap: THREE.Texture | null, private readonly materials: Materials, name: string) {
+  constructor(model: THREE.Object3D, coat: THREE.Texture, furMap: THREE.Texture, eyeMap: THREE.Texture | null, private readonly materials: Materials, name: string, shells = 16) {
+    this.shellCount = shells;
     const g: Globals = materials.globals;
     this.root.add(model);
     this.root.name = `cat:${name}`;
@@ -241,7 +245,7 @@ export class FurCat implements CatVisual {
 
   /** Fewer shells for cats far from the camera; none at all when too far to see fur. */
   setDetail(distance: number): void {
-    const n = distance < 2.5 ? this.shellCount : distance < 7 ? 12 : distance < 16 ? 8 : distance < 34 ? 5 : 3;
+    const n = Math.min(this.shellCount, distance < 2.5 ? this.shellCount : distance < 7 ? 12 : distance < 16 ? 8 : distance < 34 ? 5 : 3);
     this.shellGeo.instanceCount = n;
     this.fur.uniforms.uShells.value = n;
     this.root.visible = distance < 75;

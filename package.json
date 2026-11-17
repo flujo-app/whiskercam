@@ -1,8 +1,8 @@
 {
   "name": "whiskercam",
   "private": true,
-  "version": "0.1.0",
-  "description": "A first-person cat collar-camera game for the browser.",
+  "version": "1.0.0",
+  "description": "A day on the estate, filmed from under a cat's chin. A browser game.",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "fetch": "python -I pipeline/fetch_polyhaven.py"
+    "fetch": "python -I pipeline/fetch_polyhaven.py",
+    "playtest": "node tools/playtest.mjs estate",
+    "uitest": "node tools/uitest.mjs estate",
+    "deploy": "node tools/deploy.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",

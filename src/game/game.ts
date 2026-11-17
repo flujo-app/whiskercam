@@ -26,6 +26,8 @@ export interface GameOptions {
   size?: [number, number];
   /** frames are only produced on request (tests) */
   manual: boolean;
+  /** phones and other small devices: less grass, fewer fur layers, plants drawn less far */
+  lean?: boolean;
   onProgress?: (fraction: number, text: string) => void;
 }
 
@@ -104,7 +106,7 @@ export class Game {
     game.scene.add(game.world.group, sky.mesh);
     game.post.sunDir.copy(game.world.materials.globals.uSunDir.value);
     if (game.world.info.kinds) {
-      game.grass = new Grass(game.world.materials.globals);
+      game.grass = opts.lean ? new Grass(game.world.materials.globals, 8, 0.125, 6) : new Grass(game.world.materials.globals);
       await game.grass.load(game.world.base + game.world.info.kinds.file, game.world.info.kinds);
       game.scene.add(game.grass.mesh);
     }
@@ -119,6 +121,7 @@ export class Game {
     try {
       const coats: Coat[] = ['tabby', 'ginger', 'black', 'white', 'grey', 'tux'];
       const model = await CatModel.load(`${import.meta.env.BASE_URL}assets/cats/`, game.world.materials, coats);
+      if (opts.lean) model.shells = 10;
       game.catModel = model;
       game.catFactory = (coat: Coat, name: string) => model.make(coat, name);
     } catch (err) {
@@ -279,7 +282,7 @@ export class Game {
       }
     }
     this.grass?.update(this.rig.rig.position);
-    this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z);
+    this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z, this.opts.lean ? 27 : 38);
     this.renderer.info.reset();
     this.shadows.render(this.renderer, this.scene, this.focus);
     this.post.render(this.scene, dt);
@@ -335,7 +338,7 @@ export class Game {
       while (this.acc >= STEP && steps < 5) {
         this.update(c);
         // one-shot inputs must not repeat when several steps run in one frame
-        c.jump = c.pawLeft = c.pawRight = c.dodge = c.pause = false;
+        c.jump = c.pawLeft = c.pawRight = c.dodge = c.pause = c.meow = false;
         c.yaw = 0;
         c.pitch = 0;
         this.acc -= STEP;

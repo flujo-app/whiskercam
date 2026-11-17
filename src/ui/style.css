@@ -32,6 +32,18 @@ body {
   place-items: center;
 }
 
+/* on a wide screen the upright picture leaves room left and right: a soft, dark blur of the picture fills it */
+#glow {
+  position: fixed;
+  left: -8%;
+  top: -8%;
+  width: 116%;
+  height: 116%;
+  filter: blur(46px) brightness(0.42) saturate(1.2);
+  pointer-events: none;
+  display: none;
+}
+
 #view {
   display: block;
   background: #000;
@@ -618,6 +630,16 @@ input[type='checkbox'] {
 
 .how b {
   color: var(--ink);
+}
+
+.about {
+  color: var(--dim);
+  font-size: calc(var(--u) * 1.35);
+  opacity: 0.8;
+}
+
+.about a {
+  color: inherit;
 }
 
 .settings {

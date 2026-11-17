@@ -28,6 +28,7 @@ can save the clip as a real video file.
 | Jump | Space | Jump button | A |
 | Paw swipe / slap | left and right mouse button, or Q / E | paw buttons | X / B |
 | Pull back in a fight | S | Jump button | Y |
+| Meow | F | | |
 | Pause | Esc | | Start |
 
 The picture is upright, like a phone clip, on every screen.

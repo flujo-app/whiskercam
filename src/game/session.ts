@@ -94,6 +94,9 @@ export class Session {
   private readonly tmpA = new THREE.Vector3();
   private readonly tmpB = new THREE.Vector3();
   private warned = false;
+  private meowCool = 0;
+  private meowScore = 0;
+  private answerIn = 0;
 
   constructor(
     private readonly player: Player,
@@ -511,6 +514,23 @@ export class Session {
 
     this.elapsed += dt;
     this.score.update(dt);
+    // a meow on demand; the brother answers when he is close enough to hear it
+    this.meowCool = Math.max(0, this.meowCool - dt);
+    this.meowScore = Math.max(0, this.meowScore - dt);
+    if (c.meow && this.meowCool <= 0 && this.phase === 'play') {
+      const p = this.player;
+      this.meowCool = 1.1;
+      this.sfx.push({ name: 'meow', x: p.x, z: p.z });
+      if (this.meowScore <= 0) {
+        this.score.add('meow');
+        this.meowScore = 15;
+      }
+      if (Math.hypot(this.brother.x - p.x, this.brother.z - p.z) < 14) this.answerIn = 0.6;
+    }
+    if (this.answerIn > 0) {
+      this.answerIn -= dt;
+      if (this.answerIn <= 0) this.sfx.push({ name: 'chirp', x: this.brother.x, z: this.brother.z });
+    }
     if (this.phase === 'duel') {
       this.battery -= dt * 0.5;
       this.updateDuel(dt, c);

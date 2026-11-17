@@ -164,10 +164,12 @@ export class Hud {
     const how = el('div', 'how');
     how.innerHTML = touchDevice
       ? '<b>Left thumb</b> run and steer (push far to sprint) &nbsp;·&nbsp; <b>right side</b> drag to look &nbsp;·&nbsp; buttons: paws and jump'
-      : '<b>W</b> run &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>mouse</b> or <b>A / D</b> steer &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>click</b> left / right paw &nbsp;·&nbsp; <b>S</b> pull back in a fight &nbsp;·&nbsp; <b>Esc</b> pause';
+      : '<b>W</b> run &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>mouse</b> or <b>A / D</b> steer &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>click</b> left / right paw &nbsp;·&nbsp; <b>F</b> meow &nbsp;·&nbsp; <b>S</b> pull back in a fight &nbsp;·&nbsp; <b>Esc</b> pause';
     const goal = el('div', 'goal', 'The camera battery lasts three minutes. Chase your brother, knock things over, win the turf. Everything earns views.');
     const best = el('div', 'best', this.settings.best > 0 ? `Best clip so far: ${fmt(this.settings.best)} views` : '');
-    box.append(nameRow, coats, play, goal, how, best, this.settingsRows());
+    const about = el('div', 'about');
+    about.innerHTML = `Whiskercam ${__APP_VERSION__} &nbsp;·&nbsp; <a href="https://github.com/flujo-app/whiskercam" target="_blank" rel="noopener">how it is made, credits</a>`;
+    box.append(nameRow, coats, play, goal, how, best, this.settingsRows(), about);
     this.title.append(box);
   }
 
