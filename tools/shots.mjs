@@ -64,20 +64,17 @@ for (const s of shots) {
   if (only && s.name !== only) continue;
   const dataUrl = await page.evaluate((shot) => {
     const wc = window.__wc;
-    Object.assign(wc.pose, { roll: 0, pitch: -6 }, shot.pose);
     if (shot.look) Object.assign(wc.look, shot.look);
-    wc.cut();
-    wc.step(1 / 60, 40); // let the automatic exposure settle
-    if (shot.move) {
-      // run for a moment so the picture has motion streaks
-      const h = (wc.pose.heading * Math.PI) / 180;
-      for (let i = 0; i < 12; i++) {
-        wc.pose.x += Math.sin(h) * shot.move / 60;
-        wc.pose.z -= Math.cos(h) * shot.move / 60;
-        wc.pose.y += Math.sin(i * 1.3) * 0.004;
-        wc.pose.pitch += Math.sin(i * 1.1) * 0.5;
-        wc.step(1 / 60, 1);
-      }
+    if (shot.pose) {
+      // camera only, detached from the cat
+      wc.pose(shot.pose);
+      wc.step(40); // let the automatic exposure settle
+    } else if (shot.cat) {
+      // the real thing: put the cat down and play the listed inputs
+      wc.pose(null);
+      wc.place(shot.cat.x, shot.cat.y ?? 0.6, shot.cat.z, shot.cat.heading ?? 0);
+      wc.step(40);
+      for (const seg of shot.sim ?? []) wc.sim(seg, seg.t);
     }
     return wc.shot();
   }, s);
