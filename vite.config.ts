@@ -5,6 +5,7 @@ const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.ur
 
 export default defineConfig({
   base: './',
+  publicDir: process.env.WC_PUBLIC_DIR || 'public',
   define: { __APP_VERSION__: JSON.stringify(version) },
   build: {
     target: 'es2022',
