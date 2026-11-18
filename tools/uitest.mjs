@@ -119,6 +119,9 @@ const ready = async (page) => {
       g.playerCat.root.visible = false;
       const without = read();
       g.playerCat.root.visible = true;
+      // back to where a run starts
+      const [sx, sy, sz] = g.world.info.spawn.pos;
+      wc.place(sx, sy, sz, g.world.info.spawn.heading);
       const f = wc.THREE.DataUtils.fromHalfFloat;
       let changed = 0;
       for (let i = 0; i < withCat.length; i += 4 * 3) {
