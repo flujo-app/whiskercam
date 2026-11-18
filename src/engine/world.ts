@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { plainNumbers } from './geometry';
+import { Pictures } from './pictures';
 import { Materials, type LightRef, type MatDesc, setProbe } from './materials';
 
 export interface ChunkInfo {
@@ -129,9 +130,11 @@ export interface LoadedWorld {
   base: string;
   /** hide small plants that are further than `reach` metres from (x, z) */
   cull: (x: number, z: number, reach?: number) => void;
+  /** the loader of surface and light pictures (how many, how much memory, what failed) */
+  pictures: Pictures;
 }
 
-function lightTexture(loader: THREE.TextureLoader, url: string, single: boolean, pending: Promise<unknown>[]): THREE.Texture {
+function lightTexture(pictures: Pictures | null, url: string, single: boolean): THREE.Texture {
   const tex = new THREE.Texture();
   tex.flipY = false;
   tex.colorSpace = THREE.NoColorSpace;
@@ -140,13 +143,15 @@ function lightTexture(loader: THREE.TextureLoader, url: string, single: boolean,
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
   if (single) tex.format = THREE.RedFormat;
-  pending.push(
-    loader.loadAsync(url).then((loaded) => {
-      tex.image = loaded.image;
-      tex.needsUpdate = true;
-    }),
-  );
+  pictures?.load(tex, url);
   return tex;
+}
+
+export interface WorldOptions {
+  /** 1 = pictures at full size; smaller on phones (0.5 = a quarter of the memory) */
+  pictureScale?: number;
+  /** how many pictures to fetch and unpack at once */
+  parallel?: number;
 }
 
 /** Load a packed world (public/assets/<set>/). */
@@ -154,6 +159,7 @@ export async function loadWorld(
   set: string,
   maxAnisotropy: number,
   onProgress?: (done: number, total: number) => void,
+  options: WorldOptions = {},
 ): Promise<LoadedWorld> {
   const root = `${import.meta.env.BASE_URL}assets/`;
   const base = `${root}${set}/`;
@@ -161,7 +167,8 @@ export async function loadWorld(
     fetch(`${base}world.json`).then((r) => r.json() as Promise<WorldInfo>),
     fetch(`${base}materials.json`).then((r) => r.json() as Promise<Record<string, MatDesc>>),
   ]);
-  const materials = new Materials(root, descs, maxAnisotropy);
+  const pictures = new Pictures(options.pictureScale ?? 1, options.parallel ?? 8);
+  const materials = new Materials(root, descs, maxAnisotropy, undefined, pictures);
   const g = materials.globals;
   g.uSunDir.value.fromArray(info.sun.dir).normalize();
   g.uSunColor.value.fromArray(info.sun.irradiance);
@@ -170,20 +177,25 @@ export async function loadWorld(
 
   const gltf = new GLTFLoader();
   gltf.setMeshoptDecoder(MeshoptDecoder);
-  const texLoader = new THREE.TextureLoader();
   const group = new THREE.Group();
   group.name = 'world';
   const pending: Promise<unknown>[] = [];
   const scatter = Object.entries(info.scatter ?? {});
   let done = 0;
   const total = info.chunks.length + scatter.length;
-  const tick = () => onProgress?.(++done, total);
+  // the bar counts shapes and pictures together (about 80 shapes and 300 pictures)
+  const report = () => onProgress?.(done + pictures.done, total + Math.max(pictures.total, 250));
+  const tick = () => {
+    done++;
+    report();
+  };
+  pictures.onProgress = report;
 
   // light picture of the whole ground: for weeds on the GPU and for moving things on the CPU
   const groundLight = new GroundLight();
   if (info.ground_light) {
     const gl = info.ground_light;
-    const tex = lightTexture(texLoader, base + gl.file, false, []);
+    const tex = lightTexture(null, base + gl.file, false);
     pending.push(
       new THREE.ImageLoader().loadAsync(base + gl.file).then((img) => {
         tex.image = img;
@@ -214,8 +226,8 @@ export async function loadWorld(
     if (chunk.sun && chunk.irr) {
       light = {
         id: chunk.name,
-        sun: lightTexture(texLoader, base + chunk.sun, true, pending),
-        irr: lightTexture(texLoader, base + chunk.irr, false, pending),
+        sun: lightTexture(pictures, base + chunk.sun, true),
+        irr: lightTexture(pictures, base + chunk.irr, false),
       };
       if (chunk.kind === 'ground' && chunk.tile_origin && chunk.tile_size) {
         light.planar = { x0: chunk.tile_origin[0], z0: chunk.tile_origin[1], size: chunk.tile_size };
@@ -290,5 +302,5 @@ export async function loadWorld(
   const cull = (x: number, z: number, reach = 38) => {
     for (const g of scatterGroups) g.mesh.visible = Math.hypot(g.x - x, g.z - z) < reach;
   };
-  return { info, group, materials, groundLight, base, cull };
+  return { info, group, materials, groundLight, base, cull, pictures };
 }

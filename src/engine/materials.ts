@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Pictures } from './pictures';
 import { worldFragment, worldVertex } from './shaders/world.glsl';
 
 /** How a material is described in materials.json (written by the Blender pipeline). */
@@ -16,6 +17,8 @@ export interface MatDesc {
   wear?: number;
   tint?: number[];
   alpha?: string;
+  /** dissolve near the camera: [gone inside, solid beyond] in metres */
+  fade?: [number, number];
 }
 
 /** Baked light for one chunk. */
@@ -64,21 +67,22 @@ export class Materials {
   readonly globals: Globals;
   private readonly cache = new Map<string, THREE.ShaderMaterial>();
   private readonly textures = new Map<string, THREE.Texture>();
-  private readonly loader = new THREE.TextureLoader();
-  private readonly pending: Promise<unknown>[] = [];
+  readonly pictures: Pictures;
 
   constructor(
     private readonly base: string,
     private readonly descs: Record<string, MatDesc>,
     private readonly maxAnisotropy: number,
     globals?: Globals,
+    pictures?: Pictures,
   ) {
     this.globals = globals ?? makeGlobals();
+    this.pictures = pictures ?? new Pictures();
   }
 
   /** Resolves when every picture requested so far has arrived. */
   async ready(): Promise<void> {
-    await Promise.all(this.pending);
+    await this.pictures.ready();
   }
 
   texture(url: string, srgb: boolean, repeat = true): THREE.Texture {
@@ -94,12 +98,7 @@ export class Materials {
       t.minFilter = repeat ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
       t.generateMipmaps = repeat;
       this.textures.set(key, t);
-      this.pending.push(
-        this.loader.loadAsync(this.base + url).then((loaded) => {
-          t.image = loaded.image;
-          t.needsUpdate = true;
-        }),
-      );
+      this.pictures.load(t, this.base + url);
     }
     return tex;
   }
@@ -239,6 +238,10 @@ export class Materials {
       defines.ALPHATEST = 1;
       side = THREE.DoubleSide;
     }
+    if (d.fade) {
+      defines.NEAR_FADE = 1;
+      u.uFade = { value: new THREE.Vector2(d.fade[0], d.fade[1]) };
+    }
 
     const mat = new THREE.ShaderMaterial({
       name,
@@ -250,6 +253,8 @@ export class Materials {
       transparent,
       depthWrite: !transparent,
     });
+    // soft cut-out edges where the picture is drawn with edge smoothing (see world.glsl.ts)
+    if (defines.ALPHATEST) mat.alphaToCoverage = true;
     if (d.kind === 'roadpaint') {
       mat.polygonOffset = true;
       mat.polygonOffsetFactor = -2;
