@@ -60,8 +60,24 @@ export class GroundLight {
   private sz = 1;
   private range = 4;
   private fallback: [number, number, number] = [0.3, 0.4, 0.6];
+  /** the way to the sun along the ground */
+  private sunX = 0;
+  private sunZ = 1;
+  private near: GroundSample = { r: 0, g: 0, b: 0, sun: 0 };
 
-  load(img: HTMLImageElement, info: NonNullable<WorldInfo['ground_light']>, range: number, open: [number, number, number]): void {
+  /** The height of ordinary ground. Roads lie a little below it, pavements and lawns at it. */
+  static readonly GROUND = 0.14;
+
+  load(
+    img: HTMLImageElement,
+    info: NonNullable<WorldInfo['ground_light']>,
+    range: number,
+    open: [number, number, number],
+    sunDir: [number, number, number] = [0, 1, 1],
+  ): void {
+    const flat = Math.hypot(sunDir[0], sunDir[2]) || 1;
+    this.sunX = sunDir[0] / flat;
+    this.sunZ = sunDir[2] / flat;
     const canvas = document.createElement('canvas');
     canvas.width = img.width;
     canvas.height = img.height;
@@ -78,7 +94,69 @@ export class GroundLight {
     this.fallback = open;
   }
 
-  sample(x: number, z: number, out: GroundSample): GroundSample {
+  /**
+   * The light at a spot. `y` is the height at which the thing stands.
+   *
+   * The picture holds the light that reaches the ground, and for a cat on the ground that is the whole
+   * story: in the open it is bright, under a parked car it is nearly dark. A cat on the roof of that car is
+   * another matter. It sits in the open, while the ground straight below it lies in the car's shade. So for
+   * anything that stands above the ground, the light is taken from the ground round about instead: the
+   * brightest of it for the sky's share (the dark spots are the thing it stands on), and the ground on the
+   * sunny side for the sun's share (the shade on the far side is cast by the thing it stands on).
+   */
+  sample(x: number, z: number, out: GroundSample, y = 0): GroundSample {
+    this.at(x, z, out);
+    const lift = y - GroundLight.GROUND;
+    if (lift <= 0.12 || !this.data) return out;
+    const t = Math.min(1, (lift - 0.12) / 0.28);
+    const w = t * t * (3 - 2 * t);
+    const s = this.near;
+    // the sky's share: this spot and a ring round it, each counting by the square of its brightness
+    let l = out.r + out.g + out.b;
+    let k = l * l + 1e-9;
+    let r = out.r * k;
+    let g = out.g * k;
+    let b = out.b * k;
+    let sum = k;
+    const ring = Math.min(2.4, 0.55 + lift * 0.9);
+    for (let i = 0; i < RING.length; i += 2) {
+      this.at(x + RING[i] * ring, z + RING[i + 1] * ring, s);
+      l = s.r + s.g + s.b;
+      k = l * l + 1e-9;
+      r += s.r * k;
+      g += s.g * k;
+      b += s.b * k;
+      sum += k;
+    }
+    r /= sum;
+    g /= sum;
+    b /= sum;
+    // the sun's share: three spots towards the sun, further out the higher the thing stands
+    let lit = 0;
+    let seen = 1e-6;
+    for (let i = 0; i < 3; i++) {
+      const d = Math.min(6, 0.6 + lift * (0.8 + 0.6 * i));
+      this.at(x + this.sunX * d, z + this.sunZ * d, s);
+      lit += s.sun * s.sun;
+      seen += s.sun;
+    }
+    const sun = lit / seen;
+    // on a roof the ground round about is the foot of the walls, darker than the roof itself: lean towards
+    // the open sky up there
+    const u = Math.min(1, Math.max(0, (lift - 1.9) / 0.7));
+    const high = u * u * (3 - 2 * u) * 0.5;
+    r += (Math.max(r, this.fallback[0]) - r) * high;
+    g += (Math.max(g, this.fallback[1]) - g) * high;
+    b += (Math.max(b, this.fallback[2]) - b) * high;
+    out.r += (r - out.r) * w;
+    out.g += (g - out.g) * w;
+    out.b += (b - out.b) * w;
+    out.sun += (sun - out.sun) * w;
+    return out;
+  }
+
+  /** The light that reaches the ground at a spot. */
+  private at(x: number, z: number, out: GroundSample): GroundSample {
     if (!this.data) {
       [out.r, out.g, out.b] = this.fallback;
       out.sun = 1;
@@ -114,6 +192,9 @@ export class GroundLight {
     return out;
   }
 }
+
+/** twelve directions round the compass, as (x, z) pairs */
+const RING = Array.from({ length: 24 }, (_, i) => (i % 2 ? Math.sin : Math.cos)((Math.floor(i / 2) / 12) * Math.PI * 2));
 
 interface ScatterGroup {
   mesh: THREE.InstancedMesh;
@@ -287,7 +368,7 @@ export async function loadWorld(
         tex.image = img;
         tex.needsUpdate = true;
         const open = info.sky_irradiance_up.map((v) => v / Math.PI) as [number, number, number];
-        groundLight.load(img, gl, info.irr_range, open);
+        groundLight.load(img, gl, info.irr_range, open, info.sun.dir as [number, number, number]);
       }),
     );
     g.uGroundLight.value = tex;

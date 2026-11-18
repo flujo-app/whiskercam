@@ -116,6 +116,19 @@ const ready = async (page) => {
         return px;
       };
       const withCat = read();
+      // the light the cat stands in: the landing is a slab, and the ground sealed under it is black
+      const light = (x, z, y) => {
+        const v = g.world.groundLight.sample(x, z, { r: 0, g: 0, b: 0, sun: 0 }, y);
+        return v.r + v.g + v.b;
+      };
+      const lit = { landing: light(g.player.x, g.player.z, g.player.y), beside: light(-5.5, -24.3, 0.1), roof: 0, road: 0, under: 0 };
+      // and on the roof of the car parked in the open at -19.5, 19.7, against the road beside it and the ground under it
+      const roof = g.physics.groundBelow(-19.5, 2.2, 19.7, 3);
+      if (roof) {
+        lit.roof = light(-19.5, 19.7, roof.y);
+        lit.road = light(-16.5, 19.7, 0);
+        lit.under = light(-19.5, 19.7, 0);
+      }
       g.playerCat.root.visible = false;
       const without = read();
       g.playerCat.root.visible = true;
@@ -127,11 +140,16 @@ const ready = async (page) => {
       for (let i = 0; i < withCat.length; i += 4 * 3) {
         if (withCat[i] !== without[i] && Math.abs(f(withCat[i]) - f(without[i])) + Math.abs(f(withCat[i + 1]) - f(without[i + 1])) > 0.02) changed++;
       }
-      return { changed: changed * 3, glassFrom: wall.y0, catAt: [g.player.x, g.player.y, g.player.z].map((v) => +v.toFixed(2)) };
+      return { changed: changed * 3, glassFrom: wall.y0, lit, catAt: [g.player.x, g.player.y, g.player.z].map((v) => +v.toFixed(2)) };
     });
     if (seen.error) throw new Error(seen.error);
     console.log(`      the cat takes up about ${seen.changed} of the mirror picture's ${768 * 768} points (glass starts ${seen.glassFrom.toFixed(2)} m above the ground)`);
     if (seen.changed < 300) throw new Error('the cat does not show in the mirror image of the door');
+    const pc = (a, b) => `${Math.round((a / b) * 100)}%`;
+    console.log(`      light on the cat: on the landing ${pc(seen.lit.landing, seen.lit.beside)} of the light beside it; on a car roof ${pc(seen.lit.roof, seen.lit.road)} of the light on the road, under that car ${pc(seen.lit.under, seen.lit.road)}`);
+    if (seen.lit.landing < seen.lit.beside * 0.5) throw new Error('a cat on the landing stands in the dark');
+    if (seen.lit.roof < seen.lit.road * 0.5) throw new Error('a cat on a car roof stands in the dark');
+    if (seen.lit.under > seen.lit.road * 0.3) throw new Error('a cat under a car is as bright as one in the open');
   });
   await step('desktop: name, coat and settings', async () => {
     await page.fill('input.name', 'Biscuit');

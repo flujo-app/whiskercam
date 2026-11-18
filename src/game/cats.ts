@@ -324,7 +324,7 @@ export class Npc {
     }
     this.look.speed = v;
     if ((this.x - this.litX) ** 2 + (this.z - this.litZ) ** 2 > 0.09) {
-      this.visual.setLight(this.light.sample(this.x, this.z, this.sample));
+      this.visual.setLight(this.light.sample(this.x, this.z, this.sample, this.y));
       this.litX = this.x;
       this.litZ = this.z;
     }

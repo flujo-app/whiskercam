@@ -413,7 +413,7 @@ export class Game {
       cat.root.position.set(p.camX - (c.x * cos + c.z * sin), p.y, p.camZ - (-c.x * sin + c.z * cos));
       cat.root.rotation.y = yaw;
       const look = this.session.playerLook;
-      cat.setLight(this.world.groundLight.sample(p.x, p.z, this.lightSample));
+      cat.setLight(this.world.groundLight.sample(p.x, p.z, this.lightSample, p.y));
       cat.setDetail?.(0);
       if (cat.collarWorld) {
         // the furry cat: pose it, measure where its collar ended up, and hang that point exactly on the lens.

@@ -82,7 +82,7 @@ export class Pigeons {
     this.home = { x, z };
     this.groundY = y;
     this.flockState = 'down';
-    const s = this.light.sample(x, z, this.sample);
+    const s = this.light.sample(x, z, this.sample, y);
     setProbe(this.mat, s, this.materials.globals);
     for (const b of this.birds) {
       const a = Math.random() * Math.PI * 2;

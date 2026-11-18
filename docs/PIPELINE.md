@@ -51,6 +51,19 @@ The whole estate (build, bake, pack) takes about an hour on an RTX 2070 Super wi
 * Leaf cards are turned to face the sun for the sun measurement: the result is how much sun gets through the
   crown to each leaf, whichever way the card faces.
 
+### Light for things that move
+
+Cats, pigeons, loose things, weeds and grass have no light map. They read one small picture of the light that
+reaches the ground (`ground_light.webp`, made by `tools/pack.mjs` from the ground tiles). Two things follow
+from the ground being lit correctly:
+
+* Ground that is sealed off (under a building, under the slab of a landing) is black. The packer lets such
+  ground borrow the light of the nearest ground that sees the sky, so a weed against a wall and a cat on a
+  landing are lit like their surroundings.
+* The ground under a parked car is nearly dark, and a cat on the roof of that car sits in the open. Anything
+  that stands above the ground (`GroundLight.sample` takes the height) takes its light from the ground round
+  about: the brightest of it for the sky, the ground on the sunny side for the sun.
+
 ### Glass
 
 `glass_car` and `glass_lamp` carry `"clear"` in their description: the share of light that passes. Cycles
