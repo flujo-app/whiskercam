@@ -272,18 +272,31 @@ def build_tree(name: str, loc, height: float = 9.0, rot_z_deg: float = 0.0, coll
     rad = np.hypot(co[:, 0] - tx, co[:, 1] - ty)
     near = rad < 1.3
     fork = full_h * 0.22
+    ux, uy = tx, ty                      # where the trunk is at the height of the fork (trunks lean)
     for zc in np.arange(1.2, full_h * 0.5, 0.2):
         sel = near & (co[:, 2] >= zc) & (co[:, 2] < zc + 0.2)
-        if sel.sum() >= 3 and float(rad[sel].max()) > 0.55:
+        if sel.sum() < 3:
+            continue
+        if float(rad[sel].max()) > 0.55:
             fork = float(zc)
+            # the stem itself is the tight bunch of points nearest the axis
+            core = sel & (rad < np.percentile(rad[sel], 35) + 1e-3)
+            ux, uy = float(co[core, 0].mean()), float(co[core, 1].mean())
             break
+        ux, uy = float(co[sel, 0].mean()), float(co[sel, 1].mean())
     top = min(max(fork * s, 1.5), 5.5)
     base = xform @ Vector((tx, ty, 0.0))
     base.z = Vector(loc).z
+    crown = xform @ Vector((ux, uy, 0.0))
+    crown.z = base.z + top
+    # never more of a lean than a cat could still climb
+    lean = Vector((crown.x - base.x, crown.y - base.y, 0.0))
+    if lean.length > top * 0.35:
+        lean *= top * 0.35 / lean.length
+        crown = Vector((base.x + lean.x, base.y + lean.y, crown.z))
     r_col = max(0.07, trunk_local * s * 1.05)
-    trunk = geo.cylinder(f"{name}_col", r_col, base, base + Vector((0, 0, top)), None, coll, segments=10)
-    perch = geo.cylinder(f"{name}_perch", max(0.28, r_col + 0.16), base + Vector((0, 0, top - 0.04)), base + Vector((0, 0, top)),
-                         None, coll, segments=10)
+    trunk = geo.cylinder(f"{name}_col", r_col, base, crown, None, coll, segments=10)
+    perch = geo.cylinder(f"{name}_perch", max(0.34, r_col + 0.2), crown - Vector((0, 0, 0.04)), crown, None, coll, segments=12)
     for o in (trunk, perch):
         geo.tag(o, role="collider", collide="mesh", surface="wood")
         o.hide_render = True

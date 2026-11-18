@@ -33,7 +33,13 @@ export const JUMP = {
 export const STAMINA = { sprint: 10, climb: 7, hang: 22, trot: 7, rest: 4.5 } as const;
 
 /** Nearest the lens is allowed to come to a surface in front of it (metres). */
+/** where a jumping cat reaches for wood: degrees to either side of straight ahead */
+const CLAW_FAN = [0, 25, -25, 48, -48];
+/** how far to either side the climbing cat feels for the trunk, in metres */
+const CLIMB_FEEL = 0.03;
 const LENS_CLEAR = 0.1;
+/** the lens never comes nearer than this to any surface (the camera cannot draw anything closer than 2 cm) */
+const LENS_MIN = 0.04;
 
 export interface StepEvent {
   /** 0 = front left, 1 = front right, 2 = hind left, 3 = hind right */
@@ -52,6 +58,8 @@ interface Mantle {
   z1: number;
   t: number;
   len: number;
+  /** nothing to walk on beyond the landing spot (a fence top, the fork of a tree) */
+  narrow: boolean;
 }
 
 /**
@@ -174,6 +182,9 @@ export class Player {
     this.jumping = false;
     this.jumpBuffer = 0;
     this.airPitch = 0;
+    this.perchHold = 0;
+    this.brace = null;
+    this.face = null;
     this.stamina = 1;
     this.winded = false;
     this.feetShown = this.body.feetY;
@@ -211,6 +222,12 @@ export class Player {
     const yawDelta = (c.yaw + c.turn * turnRate * dt) * k;
     this.heading = (this.heading + yawDelta + 360) % 360;
     this.yawRate = smooth(this.yawRate, dt > 0 ? yawDelta / dt : 0, 12, dt);
+    if (this.face !== null) {
+      // turning to face what the paws are on (unless the player is steering: then they have the say)
+      const d = ((this.face - this.heading + 540) % 360) - 180;
+      if (Math.abs(yawDelta) > 0.25 || Math.abs(d) < 0.8) this.face = null;
+      else this.heading = (this.heading + d * (1 - Math.exp(-14 * dt)) + 360) % 360;
+    }
     this.lookPitch = clamp(this.lookPitch + c.pitch * k, -28, 38);
     if (Math.abs(this.speed) > 0.5) this.lookPitch = smooth(this.lookPitch, 0, 1.2, dt);
 
@@ -233,7 +250,10 @@ export class Player {
     this.inHedge = this.physics.insideSoft(body.x, body.y + 0.05, body.z, 0.09);
     let target = 0;
     const canSprint = c.sprint && !this.winded && this.crouch < 0.3 && !this.inHedge;
-    if (c.move > 0.05) target = (canSprint ? SPEED.run : SPEED.trot) * c.move;
+    if (this.perchHold > 0) {
+      // just scrambled up onto something narrow: a moment to let go of the stick before the cat walks on
+      this.perchHold = c.move < 0.2 ? 0 : this.perchHold - dt;
+    } else if (c.move > 0.05) target = (canSprint ? SPEED.run : SPEED.trot) * c.move;
     else if (c.move < -0.05) target = -SPEED.back * -c.move;
     target *= k;
     // breath: about ten seconds of flat-out sprinting, back in six or seven of trotting (quicker standing still)
@@ -279,8 +299,25 @@ export class Player {
     const want = this.speed * dt;
     const dir = want >= 0 ? 1 : -1;
     if (wasGrounded && Math.abs(this.speed) > 0.2 && this.crouch < 0.8) this.stepUp(fx * dir, fz * dir, Math.abs(want));
-    const moved = body.move(fx * want, fz * want, dt);
-    const stopped = Math.abs(want) > 1e-5 && moved < Math.abs(want) * 0.35;
+    // Bumped into a trunk or a fence with the front of the body: brace against it, paws on the wood,
+    // instead of sliding off to one side (a trunk is thin, and a leaning one never stops the cat dead).
+    // Keep pushing and it climbs (below).
+    const canClimb = k > 0.5 && c.move > 0.1 && want > 0 && this.crouch < 0.3 && !this.winded && this.stamina >= 0.1;
+    let go = want;
+    if (this.brace) {
+      if (!wasGrounded || !canClimb || !this.woodAt(this.brace.x, this.brace.z, fx, fz)) {
+        this.brace = null;
+      } else {
+        go = 0;
+        this.face = ((Math.atan2(this.brace.x, -this.brace.z) / DEG) + 360) % 360;
+      }
+    }
+    const moved = body.move(fx * go, fz * go, dt);
+    if (!this.brace && canClimb && body.grounded && body.blocked > 0.12 && this.woodAt(body.blockX, body.blockZ, fx, fz)) {
+      this.brace = { x: body.blockX, z: body.blockZ };
+    }
+    const braced = this.brace !== null;
+    const stopped = braced || (Math.abs(want) > 1e-5 && moved < Math.abs(want) * 0.35);
     if (stopped && body.grounded) {
       // ran into something: lose speed instead of grinding against it
       this.speed = smooth(this.speed, 0, 9, dt);
@@ -294,8 +331,8 @@ export class Player {
           this.updateCamera(dt, Math.abs(this.speed));
           return;
         }
-        // nothing to grab, but it is wood: dig the claws in
-        if (body.vy < 3.5 && this.tryClimb()) {
+        // nothing to stand on, but there is wood within reach of the claws: dig them in
+        if (body.vy < 3.5 && this.clawWood(fx, fz)) {
           this.updateCamera(dt, 0);
           return;
         }
@@ -315,9 +352,9 @@ export class Player {
             this.takeOff(Math.sqrt(2 * GRAVITY.rise * (rise + 0.12)), true);
             this.speed = Math.max(this.speed, 2.2);
             this.pushing = 0;
-          } else if (this.pushing > 0.3) {
+          } else if (this.pushing > (braced ? 0.22 : 0.3)) {
             // kept pushing against something too high to hop onto: if it is wood, up it goes
-            if (this.tryClimb()) {
+            if (this.brace ? this.tryClimb(this.brace.x, this.brace.z) : this.tryClimb(fx, fz)) {
               this.updateCamera(dt, 0);
               return;
             }
@@ -455,14 +492,8 @@ export class Player {
   private ledgeAhead(fx: number, fz: number, max: number): number {
     const body = this.body;
     const r = body.radius;
-    this.wallFound = false;
     const wall = this.physics.rayHit(body.x, body.y, body.z, fx, 0, fz, r + 0.22);
     if (!wall || Math.abs(wall.ny) > 0.6) return 0;
-    this.wallFound = true;
-    this.wallSurface = wall.surface;
-    this.wallNx = wall.nx;
-    this.wallNz = wall.nz;
-    this.wallDist = wall.toi;
     const reach = wall.toi + 0.09;
     const px = body.x + fx * reach;
     const pz = body.z + fz * reach;
@@ -483,13 +514,13 @@ export class Player {
   private ledgeX = 0;
   private ledgeY = 0;
   private ledgeZ = 0;
-  // what was last found in the way (see ledgeAhead)
-  private wallFound = false;
-  private wallSurface = 'plaster';
+  /** seconds left of the pause after scrambling up onto something narrow (see updateMantle) */
+  private perchHold = 0;
+  /** direction (unit, on the ground plane) of the wood the cat is braced against, if any */
+  private brace: { x: number; z: number } | null = null;
+  /** heading the cat is turning to on its own (to face what it has grabbed), if any */
+  private face: number | null = null;
   private climb: { nx: number; nz: number; fromY: number } | null = null;
-  private wallNx = 0;
-  private wallNz = 0;
-  private wallDist = 0;
 
   /** In mid-air against something: if its top is within reach of the front paws, grab it and scramble up. */
   private tryMantle(fx: number, fz: number): boolean {
@@ -505,6 +536,8 @@ export class Player {
       z1: this.ledgeZ + fz * 0.04,
       t: 0,
       len: 0.15 + rise * 0.42,
+      // a narrow perch (the top of a fence, the fork of a tree): nothing to walk on beyond it
+      narrow: this.narrowAt(this.ledgeX, this.ledgeY, this.ledgeZ, fx, fz),
     };
     this.mantling = true;
     this.mantleT = 0;
@@ -514,20 +547,59 @@ export class Player {
     return true;
   }
 
-  /** Cling to the thing ahead if it is wood (a tree trunk, a fence). Call right after `ledgeAhead`. */
-  private tryClimb(): boolean {
-    if (!this.wallFound || this.wallSurface !== 'wood' || this.winded || this.stamina < 0.1) return false;
+  /**
+   * Is the thing right against the body in direction (bx, bz) wood, and is the cat (heading fx, fz) facing
+   * it? A trunk or a post counts anywhere in the front half of the view, since the cat can simply turn to
+   * it; a flat fence only when the cat is heading into it rather than along it.
+   */
+  private woodAt(bx: number, bz: number, fx: number, fz: number, reach = 0.09): boolean {
+    const facing = bx * fx + bz * fz;
+    if (facing < 0.64) return false;
     const body = this.body;
-    if (this.wallDist > body.radius + 0.16) return false;
-    const len = Math.hypot(this.wallNx, this.wallNz) || 1;
-    this.climb = { nx: this.wallNx / len, nz: this.wallNz / len, fromY: body.feetY };
+    const r = body.radius;
+    const wall = this.physics.rayHit(body.x, body.y, body.z, bx, 0, bz, r + reach);
+    if (!wall || wall.surface !== 'wood' || Math.abs(wall.ny) > 0.6) return false;
+    if (facing >= 0.86) return true;
+    // off to one side: is it thin? (feel for wood a hand's width to either side of it)
+    const sx = -bz * 0.19;
+    const sz = bx * 0.19;
+    const a = this.physics.rayHit(body.x + sx, body.y, body.z + sz, bx, 0, bz, r + 0.25);
+    const b = this.physics.rayHit(body.x - sx, body.y, body.z - sz, bx, 0, bz, r + 0.25);
+    return !(a && a.surface === 'wood') || !(b && b.surface === 'wood');
+  }
+
+  /**
+   * In mid-air: reach for wood with the front paws, straight ahead first, then a little to either side
+   * (a trunk leans, so at jumping height it is often not where it stands on the ground).
+   */
+  private clawWood(fx: number, fz: number): boolean {
+    for (const turn of CLAW_FAN) {
+      const c = Math.cos(turn * DEG);
+      const s = Math.sin(turn * DEG);
+      const dx = fx * c - fz * s;
+      const dz = fx * s + fz * c;
+      if (this.woodAt(dx, dz, fx, fz, 0.16) && this.tryClimb(dx, dz)) return true;
+    }
+    return false;
+  }
+
+  /** Cling to the wood (a tree trunk, a fence) that is within reach in direction (dx, dz). */
+  private tryClimb(dx: number, dz: number): boolean {
+    if (this.winded || this.stamina < 0.1) return false;
+    const body = this.body;
+    const wall = this.physics.rayHit(body.x, body.y, body.z, dx, 0, dz, body.radius + 0.16);
+    if (!wall || wall.surface !== 'wood' || Math.abs(wall.ny) > 0.6) return false;
+    const len = Math.hypot(wall.nx, wall.nz);
+    if (len < 0.5) return false;
+    this.climb = { nx: wall.nx / len, nz: wall.nz / len, fromY: body.feetY };
+    this.brace = null;
     this.climbing = true;
     this.climbRate = 0;
     this.climbT = 0;
     this.jumping = false;
     this.speed = 0;
-    // face the trunk
-    this.heading = ((Math.atan2(-this.climb.nx, this.climb.nz) / DEG) + 360) % 360;
+    // turn to face the wood
+    this.face = ((Math.atan2(-this.climb.nx, this.climb.nz) / DEG) + 360) % 360;
     this.onClimb?.();
     return true;
   }
@@ -550,9 +622,12 @@ export class Player {
     this.airTime = 0;
 
     if (c.jump) {
-      // kick off: turn about and leap away from the trunk
+      // kick off: leap the way the cat is looking if that is away from the wood, otherwise straight back
+      const h = this.heading * DEG;
+      const away = Math.sin(h) * cl.nx - Math.cos(h) * cl.nz;
+      if (away < 0.35) this.heading = ((Math.atan2(cl.nx, -cl.nz) / DEG) + 360) % 360;
+      this.face = null;
       this.letGo();
-      this.heading = (this.heading + 180) % 360;
       this.speed = 3.6;
       this.takeOff(4.6, true);
       return;
@@ -585,14 +660,26 @@ export class Player {
       }
     }
     // stay on the trunk: find its surface at the new height and sit just off it
-    const wall = this.physics.rayHit(body.x + cl.nx * 0.06, y, body.z + cl.nz * 0.06, fx, 0, fz, r + 0.4);
+    const ox = body.x + cl.nx * 0.06;
+    const oz = body.z + cl.nz * 0.06;
+    const reach = r + 0.4;
+    const wall = this.physics.rayHit(ox, y, oz, fx, 0, fz, reach);
     if (!wall || wall.surface !== 'wood') {
       // ran out of trunk with nothing to stand on: drop
       this.letGo();
       return;
     }
     const d = wall.toi - 0.06 - (r + 0.02); // how far too far from the surface the ball is
-    body.setPosition(body.x + fx * d, y, body.z + fz * d);
+    // A trunk rarely stands straight. Feel for it with a paw on either side: where the wood is nearer,
+    // that is the way the trunk leans, and the cat shuffles over to stay on it.
+    const sx = -fz;
+    const sz = fx;
+    const a = this.physics.rayHit(ox + sx * CLIMB_FEEL, y, oz + sz * CLIMB_FEEL, fx, 0, fz, reach);
+    const b = this.physics.rayHit(ox - sx * CLIMB_FEEL, y, oz - sz * CLIMB_FEEL, fx, 0, fz, reach);
+    const ta = a && a.surface === 'wood' ? a.toi : reach;
+    const tb = b && b.surface === 'wood' ? b.toi : reach;
+    const side = clamp((tb - ta) * 0.8, -0.025, 0.025);
+    body.setPosition(body.x + fx * d + sx * side, y, body.z + fz * d + sz * side);
     const before = this.climbPhase;
     this.climbPhase = (this.climbPhase + (Math.abs(rate) * dt) / 0.5) % 1;
     if (rate !== 0 && (Math.floor(before * 2) !== Math.floor(this.climbPhase * 2))) this.onClaw?.();
@@ -622,7 +709,22 @@ export class Player {
       this.bumped = false;
       this.speed = clamp(this.speed, 1.2, SPEED.trot);
       this.landVel -= 0.5;
+      if (m.narrow) {
+        // up on something narrow: stop for a moment, or the cat would walk straight off the far side
+        // before the player has seen where it is
+        this.speed = 0;
+        this.perchHold = 0.7;
+      }
     }
+  }
+
+  /** Is the ledge at (x, y, z) too narrow to walk on in direction (fx, fz)? */
+  private narrowAt(x: number, y: number, z: number, fx: number, fz: number): boolean {
+    for (const d of [0.22, 0.42, 0.62]) {
+      const g = this.physics.groundBelow(x + fx * d, y + 0.2, z + fz * d, 0.2 + JUMP.step);
+      if (!g || g.ny < 0.7) return true;
+    }
+    return false;
   }
 
   private updateCamera(dt: number, v: number): void {
@@ -769,6 +871,16 @@ export class Player {
       this.camX = body.x;
       this.camZ = body.z;
       this.camY = clamp(this.camY, body.feetY + 0.03, body.feetY + body.radius * 2 - 0.03);
+    }
+    // And in whatever direction: nothing may be nearer to the glass than the lens can see past (the corner
+    // of a ledge during a scramble, a post brushed in passing), or the picture would look through it.
+    for (let i = 0; i < 2; i++) {
+      const near = this.physics.nearestSurface(this.camX, this.camY, this.camZ);
+      if (!near || near.dist >= LENS_MIN || near.dist < 1e-4) break;
+      const push = (LENS_MIN - near.dist) / near.dist;
+      this.camX += (this.camX - near.x) * push;
+      this.camY += (this.camY - near.y) * push;
+      this.camZ += (this.camZ - near.z) * push;
     }
   }
 

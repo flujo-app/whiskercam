@@ -4,7 +4,7 @@ A day on the estate, filmed from under a cat's chin. A browser game.
 
 **Play it:** https://flujo-app.github.io/whiskercam/
 
-![Three frames from the game: sprinting with the paws in view, catching the brother, the cat's own shadow on the road](docs/frame.jpg)
+![Three frames from the game: sprinting with the paws in view, climbing a tree, facing the Colonel on the square](docs/frame.jpg)
 
 You are a cat with a small camera on your collar. The battery lasts three minutes. Whatever you
 do in that time ends up in the clip, and the clip gets views:
@@ -47,9 +47,10 @@ Everything is built by script. There is no hand-made 3D model in this repository
    cars, the cat.
 2. Blender's film renderer works out the light once: sun, sky and bounced light for every surface.
    The estate is cut into slices so each job fits an ordinary 8 GB graphics card. The whole bake
-   takes about 20 minutes on an RTX 2070 Super.
+   takes about 35 minutes on an RTX 2070 Super.
 3. The game looks that light up while you play, and adds what a small action camera does to a
-   picture: fisheye lens, motion streaks, automatic exposure, soft focus up close, lens flare, grain.
+   picture: fisheye lens, motion streaks, automatic exposure with a phone camera's tone curve (shade
+   keeps its detail), soft focus up close, lens flare, grain.
 
 More detail: [docs/PIPELINE.md](docs/PIPELINE.md).
 

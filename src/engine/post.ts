@@ -48,8 +48,8 @@ export const defaultLook: LookSettings = {
   grain: 0.035,
   sharpen: 0.45,
   vignette: 0.32,
-  saturation: 1.1,
-  contrast: 1.1,
+  saturation: 1.15,
+  contrast: 1.3,
   shutter: 1 / 60,
   maxBlur: 0.09,
   adaptBrighter: 0.3,
@@ -59,7 +59,7 @@ export const defaultLook: LookSettings = {
   focusNear: 0.17,
   nearBlur: 0.035,
   smoothing: 0.9,
-  darkest: 0.007,
+  darkest: 0.004,
 };
 
 /** Eight well-spread positions inside a pixel (Halton 2, 3): where the views are nudged to, frame after frame. */
