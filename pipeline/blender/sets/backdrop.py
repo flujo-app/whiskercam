@@ -127,12 +127,16 @@ def outer_trees(coll) -> None:
         x += rng.uniform(13.0, 19.0)
     for y in (-58.0, -41.0, -27.0, -12.0, 13.0, 29.0, 46.0, 62.0):   # west, behind the wall across the street
         spots.append((STREET_X0 - rng.uniform(3.0, 6.0), y + rng.uniform(-2, 2)))
+    def outside(p) -> bool:
+        # leaves that would reach in over the wall (or through it) are left out
+        return not (x0 - 0.6 < p.x < x1 + 0.6 and y0 - 0.6 < p.y < y1 + 0.6)
+
     for i, (x, y) in enumerate(spots):
-        wood, crown, trunk = foliage.build_tree(f"otree{i}", (x, y, 0.0), rng.uniform(9.5, 13.5), rng.uniform(0, 360), coll,
-                                                seed=100 + i, cards=1500)
+        wood, crown, trunk, perch = foliage.build_tree(f"otree{i}", (x, y, 0.0), rng.uniform(9.5, 13.5), rng.uniform(0, 360), coll,
+                                                       seed=100 + i, cards=1500, keep=outside)
         # only the crowns show over the walls: no trunk, no collision
-        bpy.data.objects.remove(wood, do_unlink=True)
-        bpy.data.objects.remove(trunk, do_unlink=True)
+        for o in (wood, trunk, perch):
+            bpy.data.objects.remove(o, do_unlink=True)
 
 
 # ---------------------------------------------------------------- the street outside the gate

@@ -29,7 +29,8 @@ import numpy as np
 from . import geo, paths, scene
 
 TILE = 16.0            # ground tile size in metres
-GROUND_RES = 1024      # sun map texels per tile side  -> 1.6 cm per texel
+GROUND_RES = 2048          # sun shadows on the ground: 128 px per metre
+GROUND_SOFT_RES = 512      # sky and bounce light on the ground      # sun map texels per tile side  -> 1.6 cm per texel
 CELL = 26.0            # structure cell size in metres
 TARGET_TPM = 22.0      # wanted light-map texels per metre for near-ground structures
 ATLAS_PAD = 6
@@ -152,14 +153,18 @@ def _save_png(arr: np.ndarray, path: Path) -> None:
     bpy.data.images.remove(img)
 
 
-def bake_chunk(sc: bpy.types.Scene, obj: bpy.types.Object, res: int, out_dir: Path, uv: str = geo.UV1) -> dict:
-    """Bake sun / sky / bounce light for one chunk object and write <name>_sun.png and <name>_irr.png."""
+def bake_chunk(sc: bpy.types.Scene, obj: bpy.types.Object, res: int, out_dir: Path, uv: str = geo.UV1,
+               soft_res: int | None = None) -> dict:
+    """Bake sun / sky / bounce light for one chunk object and write <name>_sun.png and <name>_irr.png.
+
+    The sun map (hard shadow edges) is baked at `res`; sky and bounce light change slowly and are baked at
+    `soft_res` (half of `res` unless given)."""
     name = obj.name
     sun_path, irr_path = out_dir / f"{name}_sun.png", out_dir / f"{name}_irr.png"
     started = time.time()
     _ensure_material(obj)
     sun = _bake_pass(sc, obj, "sun", res, uv)
-    half = max(64, res // 2)
+    half = soft_res or max(64, res // 2)
     sky = _bake_pass(sc, obj, "sky", half, uv)
     ind = _bake_pass(sc, obj, "ind", half, uv)
     valid = (ind[..., 3] > 0.0) | (ind[..., :3].sum(axis=2) > 0.0)
@@ -362,7 +367,7 @@ def bake_scene(sc: bpy.types.Scene, name: str, origin) -> dict:
     chunks = []
     started = time.time()
     for obj in prepare_ground(sc, origin):
-        info = bake_chunk(sc, obj, GROUND_RES, out_dir)
+        info = bake_chunk(sc, obj, GROUND_RES, out_dir, soft_res=GROUND_SOFT_RES)
         info.update(kind="ground", tile_origin=list(obj["wc_tile_origin"]), tile_size=TILE)
         chunks.append(info)
     for obj, res in prepare_structures(sc):

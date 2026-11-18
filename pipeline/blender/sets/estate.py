@@ -55,6 +55,25 @@ def build_kerbs(plan: P.Plan, coll, window=None) -> None:
             continue
         obj = geo.extrude_polygon(name, geom, -0.2, P.KERB_H, _kerb_mat(material), coll, bevel_w=0.012)
         _tag(obj, role="kerb", collide="mesh", surface="concrete")
+    # a point every few metres along the kerbs, for the movement tests
+    for poly in geo.polygons_of(kerb):
+        ring = poly.exterior
+        d = 3.0
+        while d < ring.length:
+            a, b = ring.interpolate(d), ring.interpolate(d + 0.2)
+            tx, ty = b.x - a.x, b.y - a.y
+            ln = max(1e-6, (tx * tx + ty * ty) ** 0.5)
+            geo.poi("kerb", a.x, a.y, ty / ln, -tx / ln)
+            d += 9.0
+
+
+def _hedge_core_mat():
+    m = mat.get("hedge_core")
+    d = json.loads(m["wc"])
+    if "fade" not in d:
+        d["fade"] = [0.7, 1.7]          # metres from the camera: gone inside 0.7, solid beyond 1.7
+        m["wc"] = json.dumps(d)
+    return m
 
 
 def _kerb_mat(name: str):
@@ -121,7 +140,9 @@ def build_fences(plan: P.Plan, coll, window=None) -> None:
             z += 0.092 + gap
         _tag(geo.boxes(f"fence_posts_{i}", posts, mat.get("planks_grey"), coll), role="fence", collide="none")
         _tag(geo.boxes(f"fence_slats_{i}", slats, mat.get("planks_weathered"), coll), role="fence", collide="none")
-        _tag(geo.oriented_box(f"fence_col_{i}", (ax, ay), (bx, by), 0.1, 0.0, height, None, coll), role="collider", collide="mesh")
+        _tag(geo.oriented_box(f"fence_col_{i}", (ax, ay), (bx, by), 0.1, 0.0, height, None, coll), role="collider", collide="mesh",
+             surface="wood")
+        geo.poi("fence", (ax + bx) / 2, (ay + by) / 2, -uy, ux)
 
 
 def build_hedges(plan: P.Plan, coll, window=None) -> list[tuple[Polygon, float]]:
@@ -131,10 +152,17 @@ def build_hedges(plan: P.Plan, coll, window=None) -> list[tuple[Polygon, float]]
         foot = _clip(foot, window)
         if foot.is_empty or foot.area < 0.2:
             continue
+        # The dark inner volume makes the hedge look solid from the road. It lets light through when the light is
+        # worked out (so the ground and the leaves inside are dappled, not black), and the game dissolves it when
+        # the camera comes close, so a cat pushing in sees leaves and twigs instead of a flat green wall.
         core = foot.buffer(-0.16, join_style="round")
         if not core.is_empty:
-            obj = geo.extrude_polygon(f"hedge_core_{i}", core, 0.05, height - 0.16, mat.get("hedge_core"), coll)
+            obj = geo.extrude_polygon(f"hedge_core_{i}", core, 0.05, height - 0.16, _hedge_core_mat(), coll)
             _tag(obj, role="hedge_core", collide="none")
+            for flag in ("visible_shadow", "visible_diffuse", "visible_glossy", "visible_transmission"):
+                setattr(obj, flag, False)
+        centre = foot.representative_point()
+        geo.poi("hedge", centre.x, centre.y, 0.0, 0.0)
         _tag(geo.extrude_polygon(f"hedge_col_{i}", foot.buffer(-0.08), 0.0, height - 0.05, None, coll),
              role="collider", collide="mesh", soft=1)
         for k, piece in enumerate(geo.polygons_of(foot)):
@@ -150,7 +178,10 @@ def build_trees(plan: P.Plan, coll, window=None) -> None:
     for i, (x, y, height, turn) in enumerate(plan.trees):
         if window is not None and not window.buffer(8).contains(Point(x, y)):
             continue
-        foliage.build_tree(f"tree_{i}", (x, y, h(x, y) - 0.05), height, turn, coll, seed=i)
+        parts = foliage.build_tree(f"tree_{i}", (x, y, h(x, y) - 0.05), height, turn, coll, seed=i)
+        tx, ty, tr = parts[2].get("wc_trunk", (x, y, 0.1))
+        # test spot: the real place of the trunk, how high its fork is, how thick it is
+        geo.poi("tree", tx, ty, float(parts[2].get("wc_perch", 0.0)), float(tr))
 
 
 # ---------------------------------------------------------------- weeds
@@ -237,6 +268,7 @@ def build(sc, window=None, placeholders: bool = False) -> P.Plan:
 
     loose = dressing.Dresser(plan, geo.collection("props", coll), win).all()
     sc["wc_loose"] = json.dumps(loose)
+    sc["wc_poi"] = json.dumps(geo.POI)
     if win is None:
         from . import backdrop
 

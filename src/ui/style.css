@@ -204,6 +204,42 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* breath: a thin bar under the views; only there while the cat is using it or getting it back */
+.breath {
+  position: absolute;
+  left: calc(var(--u) * 2);
+  top: calc(var(--u) * 9.7);
+  width: calc(var(--u) * 13);
+  height: calc(var(--u) * 0.75);
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  opacity: 0 !important;
+  transition: opacity 0.6s ease 0.5s;
+}
+
+.breath.on {
+  opacity: 1 !important;
+  transition: opacity 0.15s ease;
+}
+
+.breath-fill {
+  height: 100%;
+  background: var(--ink);
+  border-radius: 99px;
+  transition: width 0.12s linear;
+}
+
+.breath.low .breath-fill {
+  background: var(--accent);
+}
+
+.duel-help {
+  text-align: center;
+  font-size: calc(var(--u) * 1.5);
+  opacity: 0.8;
+}
+
 .eye {
   width: calc(var(--u) * 2.8);
   height: calc(var(--u) * 2.8);

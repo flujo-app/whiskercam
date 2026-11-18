@@ -49,10 +49,16 @@ def export_collision(sc: bpy.types.Scene, out_dir: Path) -> dict:
             continue
         key = "soft" if o.get("wc_soft") else "solid"
         pos, idx, surf = groups[key]
-        surface = SURFACE_OF.get(str(o.get("wc_surface", "")), "hedge" if key == "soft" else "plaster")
+        tagged = str(o.get("wc_surface", ""))
+        # the tag is either a material name or already one of the surface kinds ("wood", "metal")
+        surface = tagged if tagged in SURFACES else SURFACE_OF.get(tagged, "hedge" if key == "soft" else "plaster")
         sid = SURFACES.index(surface)
         bm = bmesh.new()
         bm.from_mesh(o.data)
+        # Closed shapes (boxes, car bodies, pipe casings) go out with every face pointing outwards, so the game
+        # can tell a ray that leaves a solid from one that enters it. Open sheets (the ground) keep their side.
+        if bm.edges and all(e.is_manifold for e in bm.edges):
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
         bmesh.ops.triangulate(bm, faces=bm.faces[:])
         base = counts[key]
         for v in bm.verts:
@@ -310,6 +316,9 @@ def export_world(sc: bpy.types.Scene, name: str, manifest: dict, spawn, heading:
         "scatter": scatter["models"],
         "props": {"models": props["models"], "items": props["items"]},
         "spawn": {"pos": to_game(spawn), "heading": heading},
+        # places for the movement tests: [kind, x, z, nx, nz] in game axes
+        # (for a tree the last two numbers are not a direction: fork height and trunk thickness)
+        "poi": [[k, x, -y, nx, ny if k == "tree" else -ny] for k, x, y, nx, ny in json.loads(sc.get("wc_poi", "[]"))],
     }
     world.update(extra or {})
     path = out_dir / "world.json"

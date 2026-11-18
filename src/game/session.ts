@@ -3,7 +3,7 @@ import type { Controls } from '../engine/input';
 import type { Physics } from '../engine/physics';
 import type { GroundLight } from '../engine/world';
 import { Npc, restLook, type CatLook, type CatVisualFactory, type Coat } from './cats';
-import { Duel, LEVELS, PLAYER_NERVE, type DuelEvent } from './duel';
+import { Duel, LEVELS, STAMINA, PLAYER_NERVE, type DuelEvent } from './duel';
 import type { Nav } from './nav';
 import { SPEED, type Player } from './player';
 import type { Props } from './props';
@@ -133,6 +133,20 @@ export class Session {
     player.onStep = (e) => this.sfx.push({ name: 'step', detail: e.surface, gain: e.force });
     player.onLand = (f) => this.sfx.push({ name: 'land', detail: player.surface, gain: f });
     player.onJump = () => this.sfx.push({ name: 'jump' });
+    // front paws on an edge: claws, then the scramble
+    player.onMantle = (rise) => {
+      this.sfx.push({ name: 'land', detail: player.surface, gain: 0.45 });
+      this.sfx.push({ name: 'step', detail: player.surface, gain: 0.9 });
+      if (rise > 0.3) this.score.add('jump');
+    };
+    player.onBump = (force) => this.sfx.push({ name: 'knock', x: player.x, z: player.z, detail: 'thing', gain: 0.35 + 0.4 * force });
+    // claws in bark
+    player.onClimb = () => this.sfx.push({ name: 'land', detail: 'wood', gain: 0.5 });
+    player.onClaw = () => this.sfx.push({ name: 'step', detail: 'wood', gain: 0.85 });
+    player.onClimbed = (height) => {
+      if (height > 1.8) this.score.add('climb');
+      else if (height > 0.8) this.score.add('jump');
+    };
   }
 
   /** Begin a run (from the title screen or after "run it back"). */
@@ -253,7 +267,7 @@ export class Session {
     this.phase = 'duel';
     this.duelRival = r;
     r.state = 'duel';
-    this.duel = new Duel(LEVELS[r.info.level] ?? LEVELS[1], this.rand);
+    this.duel = new Duel(LEVELS[r.info.level] ?? LEVELS[1], this.rand, this.player.stamina);
     this.player.control = 0;
     this.player.speed = 0;
     // stand nose to nose: a little in front of the rival, facing it
@@ -286,7 +300,16 @@ export class Session {
         break;
       case 'blocked':
         this.sfx.push({ name: 'block' });
-        this.player.shake = Math.max(this.player.shake, 0.15);
+        this.player.shake = Math.max(this.player.shake, 0.3);
+        this.score.say('blocked');
+        break;
+      case 'tired':
+        this.say('Out of breath', 1.2);
+        this.sfx.push({ name: 'swipe', gain: 0.25 });
+        break;
+      case 'rivalWinded':
+        this.say(`${r.info.name} is out of breath`, 1.8);
+        this.score.say('rivalWinded');
         break;
       case 'whiff':
         break;
@@ -341,6 +364,8 @@ export class Session {
     r.npc.face(p.x, p.z, dt, 10);
     duel.update(dt, { slapLeft: c.pawLeft, slapRight: c.pawRight, dodge: c.dodge || c.move < -0.6 || c.jump });
     for (const e of duel.drain()) this.onDuelEvent(e, r);
+    p.stamina = duel.stamina;
+    p.winded = duel.stamina < STAMINA.slap;
 
     // how the rival looks in each state
     const look = r.npc.look;
@@ -354,9 +379,11 @@ export class Session {
     look.flinch = Math.max(0, look.flinch - dt * 2.4);
     look.puff = lerp(look.puff, duel.over === 'won' ? 0 : 1, 3);
     look.act = duel.rivalState === 'intro' ? 'guard' : duel.rivalState;
+    look.tired = duel.rivalWinded ? 1 : Math.max(0, 0.6 - duel.rivalStamina);
     look.actT = duel.rivalT;
     look.actLen = duel.rivalLen;
-    look.actSide = duel.rivalSide;
+    // a slapped cat's head goes the way the paw sent it
+    look.actSide = duel.rivalState === 'stagger' ? duel.playerSide : duel.rivalSide;
 
     // how the fight moves the camera
     const dodging = duel.playerState === 'dodge' ? Math.sin(Math.min(1, duel.playerT / 0.6) * Math.PI) : 0;
@@ -378,6 +405,11 @@ export class Session {
   }
 
   private endDuel(won: boolean): void {
+    // the fight is over: the rival's fight move must not linger in how it is drawn
+    if (this.duelRival) {
+      this.duelRival.npc.look.act = undefined;
+      this.duelRival.npc.look.tired = 0;
+    }
     const r = this.duelRival!;
     this.duel = null;
     this.duelRival = null;
@@ -505,13 +537,28 @@ export class Session {
     pl.phase = this.player.phase;
     pl.stance = this.phase === 'duel' ? 'fight' : this.player.crouch > 0.5 ? 'crouch' : pl.speed > 0.15 ? 'move' : 'stand';
     pl.airborne = this.player.airborne;
+    pl.tired = Math.max(0, 0.5 - this.player.stamina) * 2;
     pl.airSpeed = this.player.body.vy;
     if (this.phase === 'duel' && this.duel) {
       const d = this.duel;
-      pl.act = d.playerState === 'ready' ? 'guard' : d.playerState;
+      // a slap that was batted away looks like a flinch
+      pl.act = d.playerState === 'ready' ? 'guard' : d.playerState === 'parried' ? 'flinch' : d.playerState;
       pl.actT = d.playerT;
       pl.actLen = d.playerLen;
       pl.actSide = d.playerSide;
+    } else if (this.player.climbing) {
+      pl.act = 'climb';
+      pl.actT = this.player.climbT;
+      pl.actLen = 0;
+      pl.actSide = 1;
+      pl.phase = this.player.climbPhase;
+      pl.speed = this.player.climbRate;
+      pl.stance = 'move';
+    } else if (this.player.mantling) {
+      pl.act = 'mantle';
+      pl.actT = this.player.mantleT;
+      pl.actLen = this.player.mantleLen;
+      pl.actSide = 1;
     } else if (this.swipeAnim[0] > 0 || this.swipeAnim[1] > 0) {
       const i = this.swipeAnim[0] >= this.swipeAnim[1] ? 0 : 1;
       pl.act = 'swipe';
@@ -584,6 +631,11 @@ export class Session {
       this.player.control = 0;
       this.sfx.push({ name: 'shutdown' });
     }
+  }
+
+  /** 0..1: the player's breath (shared by sprinting, climbing and fights) */
+  get stamina(): number {
+    return this.player.stamina;
   }
 
   get playerNerve(): number {

@@ -16,6 +16,15 @@ UV1 = "uv1"  # lightmap UVs
 
 # ---------------------------------------------------------------- collections / objects
 
+# Places the automated movement tests should visit: [kind, x, y, nx, ny] in Blender axes, where (nx, ny)
+# points away from the thing (out of the wall, down the steps, from the pavement towards the road).
+POI: list[list] = []
+
+
+def poi(kind: str, x: float, y: float, nx: float = 0.0, ny: float = 0.0) -> None:
+    POI.append([kind, round(float(x), 3), round(float(y), 3), round(float(nx), 3), round(float(ny), 3)])
+
+
 def collection(name: str, parent: bpy.types.Collection | None = None) -> bpy.types.Collection:
     coll = bpy.data.collections.get(name)
     if coll is None:

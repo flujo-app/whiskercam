@@ -18,17 +18,18 @@ export type Deed =
   | 'flawless'    // ... without taking a hit
   | 'lostDuel'
   | 'pigeons'
-  | 'meow';
+  | 'meow'
+  | 'climb';
 
 const BASE: Record<Deed, number> = {
   chase: 140, tag: 4500, knock: 900, undercar: 1400, hedge: 700, zoomies: 1200, jump: 450, slap: 350, counter: 800,
-  dodge: 500, turf: 12000, flawless: 6000, lostDuel: 600, pigeons: 1500, meow: 250,
+  dodge: 500, turf: 12000, flawless: 6000, lostDuel: 600, pigeons: 1500, meow: 250, climb: 2400,
 };
 
 const LABEL: Partial<Record<Deed, string>> = {
   tag: 'Tagged Rocket', knock: 'Knocked it over', undercar: 'Under the car', hedge: 'Through the hedge',
   zoomies: 'Zoomies', jump: 'Big jump', counter: 'Got in first', dodge: 'Made them miss', turf: 'Turf taken',
-  flawless: 'Not a scratch', lostDuel: 'Took a slapping', pigeons: 'Scattered the pigeons', meow: 'Said hello',
+  flawless: 'Not a scratch', lostDuel: 'Took a slapping', pigeons: 'Scattered the pigeons', meow: 'Said hello', climb: 'Up a tree',
 };
 
 const KNOCK_NAMES: Record<string, [string, number]> = {
@@ -76,6 +77,9 @@ const LINES: Record<string, string[]> = {
   battery: ['battery is dying nooo', 'do not end here', 'someone charge this cat'],
   duelStart: ['oh no', 'here we go', 'that one looks mean', 'square up', 'ears are back. it is on.'],
   pigeons: ['PIGEONS', 'he has wanted to do that all day', 'chaos'],
+  climb: ['HOW is he getting down', 'someone call the fire brigade', 'the view from up there', 'tree cat', 'he lives there now'],
+  blocked: ['batted away', 'stop flailing!!', 'wait for it', 'patience, small tiger'],
+  rivalWinded: ['he is puffed, GO', 'now now now', 'out of breath lol'],
   meow: ['he said hello', 'MEOW', 'talkative today', 'someone translate that', 'he is calling his brother'],
 };
 

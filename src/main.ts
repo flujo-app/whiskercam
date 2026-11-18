@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+import type { Controls } from './engine/input';
 import { Bot } from './game/bot';
 import { restLook, type CatLook, type Coat } from './game/cats';
 import type { FurCat } from './game/furcat';
@@ -217,6 +219,17 @@ async function start(): Promise<void> {
       return 'ok';
     },
     /** draw `n` frames as fast as possible and report the time per frame (waits for the graphics card) */
+    /** Play on without drawing (fast: for movement tests). `c` holds the buttons for the whole stretch. */
+    walk(c: Partial<Controls>, seconds: number) {
+      const held: Controls = { move: 0, turn: 0, yaw: 0, pitch: 0, sprint: false, jump: false, jumpHeld: false, pawLeft: false, pawRight: false, dodge: false, pause: false, any: false, ...c };
+      let first = true;
+      game.simWith(() => {
+        // one-shot buttons only on the first step
+        if (!first) held.jump = held.pawLeft = held.pawRight = held.dodge = false;
+        first = false;
+        return held;
+      }, seconds, 1e9);
+    },
     bench(n = 120) {
       const gl = game.renderer.getContext();
       const px = new Uint8Array(4);
@@ -235,6 +248,8 @@ async function start(): Promise<void> {
       return canvas.toDataURL('image/jpeg', 0.92);
     },
   };
+  // tests need to cast rays at what is drawn, to compare it with what is solid
+  (api as unknown as { THREE: unknown }).THREE = THREE;
   (window as unknown as { __wc: typeof api }).__wc = api;
 
   if (manual) game.sim({}, 1 / 60);
