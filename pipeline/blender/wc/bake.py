@@ -10,6 +10,20 @@ Three things are stored for every surface point:
 sky + ind are added into one picture ("irr"); sun stays separate so the game can still
 do crisp, bumpy sunlight per pixel and let moving things cast shadows.
 
+How "sun" is measured: Blender's own SHADOW bake is a ratio that also contains bounced light and
+turns into noise on shiny surfaces (door glass and steel plates in the shade came out speckled with
+"sunlight"). So the sun map is baked as plain direct sunlight on a copy of the mesh whose shading
+direction points straight at the sun everywhere: what arrives is then "full sun x visible fraction",
+whatever way the surface faces, and dividing by full sun gives the fraction.
+
+During the whole bake every surface is matt (no metal, no gloss, no bump pictures): the game adds
+gloss and bumps itself, and a mirror-like surface has no "light falling on it" that Cycles could bake.
+
+And the surface being baked is plain white for the bake itself, while every other ray (shadows, bounces)
+still sees the real material. Cycles can only report "light falling on" a surface that has some matt
+colour at that very spot: the corners of a leaf card are see-through and black, so leaves used to get
+no sky light at all, and see-through car glass or bare metal would get none either.
+
 Slices ("chunks"):
   ground tiles   - TILE x TILE metres of flat ground, light map = plain top-down projection
   structure cells- everything else (kerbs, walls, buildings, props), light map laid out by xatlas
@@ -91,8 +105,164 @@ def _ensure_material(obj: bpy.types.Object) -> None:
                 obj.data.materials[i] = fallback
 
 
+# ---------------------------------------------------------------- matt surfaces, sun direction
+
+_MATT = (("Metallic", 0.0), ("Roughness", 1.0), ("Coat Weight", 0.0), ("Specular IOR Level", 0.0),
+         ("Transmission Weight", 0.0), ("Sheen Weight", 0.0), ("Normal", None))
+
+
+def make_matt(materials) -> list:
+    """Make materials matt and bump-free in place. Returns what `restore` needs to put them back."""
+    undo = []
+    for m in materials:
+        if m is None or not m.use_nodes:
+            continue
+        nt = m.node_tree
+        for node in nt.nodes:
+            if node.type != "BSDF_PRINCIPLED":
+                continue
+            for key, val in _MATT:
+                sock = node.inputs.get(key)
+                if sock is None:
+                    continue
+                for link in list(sock.links):
+                    undo.append(("link", nt, link.from_socket, sock))
+                    nt.links.remove(link)
+                if val is not None:
+                    undo.append(("value", sock, sock.default_value))
+                    sock.default_value = val
+    return undo
+
+
+def white_receivers(materials, two_sided: bool = True) -> list:
+    """For the bake's own look at a surface, make every material plain white and solid; all other rays keep
+    seeing the real thing. two_sided: leaves (anything with a translucent part) also count light from behind."""
+    undo = []
+    for m in {m for m in materials if m is not None and m.use_nodes}:
+        nt = m.node_tree
+        out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL" and n.is_active_output), None)
+        if out is None or not out.inputs["Surface"].links:
+            continue
+        real = out.inputs["Surface"].links[0].from_socket
+        added = []
+
+        def node(kind):
+            n = nt.nodes.new(kind)
+            added.append(n)
+            return n
+
+        white = node("ShaderNodeBsdfDiffuse")
+        white.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+        shade = white.outputs["BSDF"]
+        through = next((n for n in nt.nodes if n.type == "MIX_SHADER"
+                        and any(ln.from_node.type == "BSDF_TRANSLUCENT" for ln in n.inputs[2].links)), None)
+        if two_sided and through is not None:
+            back = node("ShaderNodeBsdfTranslucent")
+            back.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+            both = node("ShaderNodeMixShader")
+            both.inputs["Fac"].default_value = through.inputs["Fac"].default_value
+            nt.links.new(shade, both.inputs[1])
+            nt.links.new(back.outputs["BSDF"], both.inputs[2])
+            shade = both.outputs["Shader"]
+        path = node("ShaderNodeLightPath")
+        pick = node("ShaderNodeMixShader")
+        nt.links.new(path.outputs["Is Camera Ray"], pick.inputs["Fac"])
+        nt.links.new(real, pick.inputs[1])
+        nt.links.new(shade, pick.inputs[2])
+        nt.links.new(pick.outputs["Shader"], out.inputs["Surface"])
+        undo.append(("nodes", nt, added, real, out.inputs["Surface"]))
+    return undo
+
+
+def restore(undo: list) -> None:
+    for item in reversed(undo):
+        if item[0] == "link":
+            item[1].links.new(item[2], item[3])
+        elif item[0] == "nodes":
+            _, nt, added, real, surface = item
+            nt.links.new(real, surface)
+            for n in added:
+                nt.nodes.remove(n)
+        else:
+            item[1].default_value = item[2]
+
+
+def _full_sun(sc: bpy.types.Scene) -> float:
+    """What the direct-sunlight bake gives for a surface in full sun that faces the sun."""
+    lamp = scene.sun_object(sc).data
+    return float(lamp.energy * lamp.color[0] / math.pi)
+
+
+def _sun_copy(sc: bpy.types.Scene, obj: bpy.types.Object, both_sides: bool) -> bpy.types.Object:
+    """A copy of `obj` whose shading direction points at the sun everywhere.
+    both_sides: thin things lit from either side (leaf cards) are turned to face the sun as well."""
+    from mathutils import Vector
+
+    towards = (scene.sun_object(sc).matrix_world.to_3x3() @ Vector((0.0, 0.0, 1.0))).normalized()
+    local = (obj.matrix_world.to_3x3().inverted() @ towards).normalized()
+    dup = obj.copy()
+    dup.data = obj.data.copy()
+    dup.name = f"{obj.name}_sun"
+    sc.collection.objects.link(dup)
+    me = dup.data
+    if both_sides:
+        nor = np.empty(len(me.polygons) * 3, dtype=np.float32)
+        me.polygons.foreach_get("normal", nor)
+        away = np.nonzero(nor.reshape(-1, 3) @ np.array(local, dtype=np.float32) < 0.0)[0]
+        if len(away):
+            bm = bmesh.new()
+            bm.from_mesh(me)
+            bm.faces.ensure_lookup_table()
+            bmesh.ops.reverse_faces(bm, faces=[bm.faces[int(i)] for i in away])
+            bm.to_mesh(me)
+            bm.free()
+    me.normals_split_custom_set([tuple(local)] * len(me.loops))
+    return dup
+
+
+def _drop(obj: bpy.types.Object) -> None:
+    me = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.data.meshes.remove(me)
+
+
+def _bake_sun(sc: bpy.types.Scene, obj: bpy.types.Object, res: int, uv: str) -> np.ndarray:
+    """Fraction of the sun disc that reaches every light-map texel of `obj`: (res, res, 1), row 0 = bottom."""
+    dup = _sun_copy(sc, obj, both_sides=False)
+    keep_hide = obj.hide_render
+    obj.hide_render = True
+    white = white_receivers(dup.data.materials, two_sided=False)
+    img = bpy.data.images.new("bake_sun", res, res, alpha=True, float_buffer=True)
+    for m in dup.data.materials:
+        _bake_node(m).image = img
+    dup.data.uv_layers.active = dup.data.uv_layers[uv]
+    geo.select_only([dup])
+    world_bg = sc.world.node_tree.nodes["Background"].inputs["Strength"]
+    keep_strength = world_bg.default_value
+    sc.cycles.samples = SAMPLES["sun"]
+    sc.cycles.use_adaptive_sampling = False
+    sc.cycles.use_denoising = False
+    try:
+        world_bg.default_value = 0.0
+        bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT"}, margin=max(2, ATLAS_PAD * res // 1024), use_clear=True,
+                            uv_layer=uv)
+    finally:
+        world_bg.default_value = keep_strength
+        obj.hide_render = keep_hide
+        restore(white)
+    px = np.empty(res * res * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    for m in dup.data.materials:
+        _bake_node(m).image = None
+    bpy.data.images.remove(img)
+    _drop(dup)
+    return np.clip(px.reshape(res, res, 4)[..., :1] / _full_sun(sc), 0.0, 1.0)
+
+
 def _bake_pass(sc: bpy.types.Scene, obj: bpy.types.Object, kind: str, res: int, uv: str) -> np.ndarray:
     """Run one Cycles bake for `obj`; returns a (res, res, 4) float array (row 0 = bottom)."""
+    if kind == "sun":
+        return _bake_sun(sc, obj, res, uv)
     img = bpy.data.images.new(f"bake_{kind}", res, res, alpha=True, float_buffer=True)
     for m in obj.data.materials:
         _bake_node(m).image = img
@@ -105,11 +275,9 @@ def _bake_pass(sc: bpy.types.Scene, obj: bpy.types.Object, kind: str, res: int, 
     sc.cycles.use_adaptive_sampling = False
     sc.cycles.use_denoising = False
     margin = max(2, ATLAS_PAD * res // 1024)
+    white = white_receivers(obj.data.materials)
     try:
-        if kind == "sun":
-            world_bg.default_value = 0.0
-            bpy.ops.object.bake(type="SHADOW", margin=margin, use_clear=True, uv_layer=uv)
-        elif kind == "sky":
+        if kind == "sky":
             sun.hide_render = True
             bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT"}, margin=margin, use_clear=True, uv_layer=uv)
         else:
@@ -117,6 +285,7 @@ def _bake_pass(sc: bpy.types.Scene, obj: bpy.types.Object, kind: str, res: int, 
     finally:
         world_bg.default_value = keep_strength
         sun.hide_render = keep_hide
+        restore(white)
     px = np.empty(res * res * 4, dtype=np.float32)
     img.pixels.foreach_get(px)
     for m in obj.data.materials:
@@ -324,15 +493,33 @@ def bake_vertex(sc: bpy.types.Scene, obj: bpy.types.Object) -> dict:
     sc.cycles.use_denoising = False
     n = len(mesh.vertices)
     got = {}
-    for kind in ("sun", "sky", "ind"):
+    # sun: direct sunlight on a copy whose cards all face the sun (see the top of this file)
+    dup = _sun_copy(sc, obj, both_sides=True)
+    undo = white_receivers(dup.data.materials, two_sided=False)
+    obj.hide_render = True
+    geo.select_only([dup])
+    attr = dup.data.color_attributes.new("bk_sun", "FLOAT_COLOR", "POINT")
+    dup.data.color_attributes.active_color = attr
+    sc.cycles.samples = 96
+    try:
+        world_bg.default_value = 0.0
+        bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT"}, target="VERTEX_COLORS")
+    finally:
+        world_bg.default_value = keep_strength
+        obj.hide_render = False
+        restore(undo)
+    data = np.empty(n * 4, dtype=np.float32)
+    dup.data.color_attributes["bk_sun"].data.foreach_get("color", data)
+    got["sun"] = np.clip(data.reshape(n, 4)[:, :3] / _full_sun(sc), 0.0, 1.0)
+    _drop(dup)
+    geo.select_only([obj])
+    for kind in ("sky", "ind"):
         attr = mesh.color_attributes.new(f"bk_{kind}", "FLOAT_COLOR", "POINT")
         mesh.color_attributes.active_color = attr
-        sc.cycles.samples = {"sun": 96, "sky": 96, "ind": 192}[kind]
+        sc.cycles.samples = {"sky": 96, "ind": 192}[kind]
+        undo = white_receivers(mesh.materials)
         try:
-            if kind == "sun":
-                world_bg.default_value = 0.0
-                bpy.ops.object.bake(type="SHADOW", target="VERTEX_COLORS")
-            elif kind == "sky":
+            if kind == "sky":
                 sun.hide_render = True
                 bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT"}, target="VERTEX_COLORS")
             else:
@@ -340,10 +527,11 @@ def bake_vertex(sc: bpy.types.Scene, obj: bpy.types.Object) -> dict:
         finally:
             world_bg.default_value = keep_strength
             sun.hide_render = keep_hide
+            restore(undo)
         data = np.empty(n * 4, dtype=np.float32)
         mesh.color_attributes[f"bk_{kind}"].data.foreach_get("color", data)
         got[kind] = data.reshape(n, 4)[:, :3].copy()
-    for kind in ("sun", "sky", "ind"):
+    for kind in ("sky", "ind"):
         mesh.color_attributes.remove(mesh.color_attributes[f"bk_{kind}"])
     final = np.ones((n, 4), dtype=np.float32)
     final[:, :3] = np.sqrt(np.clip((got["sky"] + got["ind"]) / IRR_RANGE, 0.0, 1.0))
@@ -366,6 +554,7 @@ def bake_scene(sc: bpy.types.Scene, name: str, origin) -> dict:
     sc.render.bake.margin_type = "EXTEND"
     chunks = []
     started = time.time()
+    undo = make_matt(bpy.data.materials)
     for obj in prepare_ground(sc, origin):
         info = bake_chunk(sc, obj, GROUND_RES, out_dir, soft_res=GROUND_SOFT_RES)
         info.update(kind="ground", tile_origin=list(obj["wc_tile_origin"]), tile_size=TILE)
@@ -383,6 +572,7 @@ def bake_scene(sc: bpy.types.Scene, name: str, origin) -> dict:
         obj = geo.join(far, "far_0")
         obj["wc_chunk"] = "far"
         chunks.append({"name": obj.name, "kind": "far"})
+    restore(undo)
     manifest = {"chunks": chunks, "irr_range": IRR_RANGE, "seconds": round(time.time() - started, 1)}
     (out_dir / "chunks.json").write_text(json.dumps(manifest, indent=1))
     print(f"[bake] {len(chunks)} chunks in {manifest['seconds']}s")
