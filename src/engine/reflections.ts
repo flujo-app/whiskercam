@@ -49,8 +49,10 @@ export class Probe implements ProbeRef {
   readonly uProbeLod = { value: 0 };
   readonly uProbeOn = { value: 0 };
   readonly target: THREE.WebGLCubeRenderTarget;
-  /** how many of its six sides have been taken */
+  /** how many of its six sides have been taken (in the round that is under way) */
   faces = 0;
+  /** all six sides have been taken at least once */
+  taken = false;
 
   constructor(readonly id: string, x: number, y: number, z: number, readonly size: number, readonly kind: 'car' | 'wall', readonly hide: HideBox | null) {
     this.target = cubeTarget(size);
@@ -59,9 +61,6 @@ export class Probe implements ProbeRef {
     this.uProbeLod.value = Math.log2(size);
   }
 
-  get taken(): boolean {
-    return this.faces >= 6;
-  }
 }
 
 function cubeTarget(size: number): THREE.WebGLCubeRenderTarget {
@@ -189,12 +188,19 @@ export class Reflections {
       this.view(p, p.faces, p.target, false);
       p.faces++;
       views--;
-      if (p.taken) {
+      if (p.faces >= 6) {
+        p.taken = true;
         p.uProbeOn.value = 1;
         this.owed.shift();
       }
     }
     return this.owed.reduce((n, p) => n + 6 - p.faces, 0);
+  }
+
+  /** Take every picture again (the surroundings look different now: the full surface pictures have arrived). */
+  retake(): void {
+    for (const p of this.probes) p.faces = 0;
+    this.owed = [...this.probes];
   }
 
   /** Keep this probe's picture up to date from now on (null = none). */

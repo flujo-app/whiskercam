@@ -36,6 +36,8 @@ export interface WorldInfo {
   brother?: { name: string; coat: string; pos: [number, number]; facing: number };
   pigeons?: [number, number][];
   spawn: { pos: [number, number, number]; heading: number };
+  /** every picture has a small copy in a folder "s" next to it (see pictures.ts) */
+  small?: boolean;
 }
 
 /** Light at a spot on the ground, for things that move (read from the ground light picture). */
@@ -136,7 +138,7 @@ export interface LoadedWorld {
   pictures: Pictures;
 }
 
-function lightTexture(pictures: Pictures | null, url: string, single: boolean): THREE.Texture {
+function lightTexture(pictures: Pictures | null, url: string, single: boolean, near = 0): THREE.Texture {
   const tex = new THREE.Texture();
   tex.flipY = false;
   tex.colorSpace = THREE.NoColorSpace;
@@ -145,7 +147,7 @@ function lightTexture(pictures: Pictures | null, url: string, single: boolean): 
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
   if (single) tex.format = THREE.RedFormat;
-  pictures?.load(tex, url);
+  pictures?.load(tex, url, 4096, near);
   return tex;
 }
 
@@ -251,7 +253,7 @@ export async function loadWorld(
     fetch(`${base}world.json`).then((r) => r.json() as Promise<WorldInfo>),
     fetch(`${base}materials.json`).then((r) => r.json() as Promise<Record<string, MatDesc>>),
   ]);
-  const pictures = new Pictures(options.pictureScale ?? 1, options.parallel ?? 8);
+  const pictures = new Pictures(options.pictureScale ?? 1, options.parallel ?? 8, info.small === true);
   const materials = new Materials(root, descs, maxAnisotropy, undefined, pictures);
   const g = materials.globals;
   g.uSunDir.value.fromArray(info.sun.dir).normalize();
@@ -308,10 +310,14 @@ export async function loadWorld(
   const chunkJobs = info.chunks.map(async (chunk) => {
     let light: LightRef | null = null;
     if (chunk.sun && chunk.irr) {
+      // (full pictures come in nearest first: how far is this chunk from where the game starts?)
+      const [lo, hi] = chunk.bounds;
+      const [sx, , sz] = info.spawn.pos;
+      const near = Math.hypot(Math.max(lo[0] - sx, 0, sx - hi[0]), Math.max(lo[2] - sz, 0, sz - hi[2]));
       light = {
         id: chunk.name,
-        sun: lightTexture(pictures, base + chunk.sun, true),
-        irr: lightTexture(pictures, base + chunk.irr, false),
+        sun: lightTexture(pictures, base + chunk.sun, true, near),
+        irr: lightTexture(pictures, base + chunk.irr, false, near),
       };
       if (chunk.kind === 'ground' && chunk.tile_origin && chunk.tile_size) {
         light.planar = { x0: chunk.tile_origin[0], z0: chunk.tile_origin[1], size: chunk.tile_size };

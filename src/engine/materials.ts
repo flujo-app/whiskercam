@@ -118,6 +118,9 @@ export class Materials {
     await this.pictures.ready();
   }
 
+  /** how soon the full surface pictures are wanted, compared with the baked light (which is sorted by distance in metres) */
+  static readonly SURFACE_NEAR = 12;
+
   texture(url: string, srgb: boolean, repeat = true): THREE.Texture {
     const key = `${url}|${srgb}|${repeat}`;
     let tex = this.textures.get(key);
@@ -131,7 +134,7 @@ export class Materials {
       t.minFilter = repeat ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
       t.generateMipmaps = repeat;
       this.textures.set(key, t);
-      this.pictures.load(t, this.base + url);
+      this.pictures.load(t, this.base + url, 4096, Materials.SURFACE_NEAR);
     }
     return tex;
   }

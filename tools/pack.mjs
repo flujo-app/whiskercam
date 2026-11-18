@@ -5,6 +5,8 @@
 // * surface pictures are resized and re-encoded (WebP)
 // * light maps are re-encoded (sun: lossless grey, bounce/sky light: high-quality lossy)
 // * geometry and the small JSON files are copied
+// * every picture also gets a small copy (in a folder "s" next to it): the game starts on those and swaps
+//   the full ones in afterwards, so the wait before the title screen is a third of what it was
 // * buildings, parked cars and tree trunks also get a simplified copy (*.lite.glb) for phones, which are held
 //   back by the number of triangles far more than by the number of pixels
 import fs from 'node:fs/promises';
@@ -265,6 +267,23 @@ async function main() {
       }
     }
   }
+
+  // ---- small copies of every picture, for a quick start
+  for (const [dir, side] of [[TEX_OUT, 256], [path.join(OUT, 'lm'), 0]]) {
+    await fs.mkdir(path.join(dir, 's'), { recursive: true });
+    for (const f of await fs.readdir(dir)) {
+      if (!f.endsWith('.webp')) continue;
+      const src = path.join(dir, f);
+      const dst = path.join(dir, 's', f);
+      if (!newer(src, dst)) continue;
+      const meta = await sharp(src).metadata();
+      // surface pictures: 256 pixels; baked light: a quarter of the width and height
+      const w = side ? Math.min(side, meta.width) : Math.max(32, Math.round(meta.width / 4));
+      await sharp(src).resize(w, null, { kernel: 'lanczos3' }).webp({ quality: 82, alphaQuality: 90, effort: 4 }).toFile(dst);
+      made++;
+    }
+  }
+  world.small = true;
 
   // ---- everything else
   for (const f of ['collision.json', 'collision.bin', 'sky.png', 'kinds.png']) {

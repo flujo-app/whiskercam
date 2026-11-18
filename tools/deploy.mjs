@@ -34,9 +34,12 @@ for (const f of ['materials.json', 'world.json']) {
   for (const m of text.matchAll(/tex\/([\w.-]+\.webp)/g)) used.add(m[1]);
 }
 let dropped = 0;
-for (const f of fs.readdirSync(path.join(dist, 'assets', 'tex'))) {
-  if (!used.has(f)) {
-    fs.rmSync(path.join(dist, 'assets', 'tex', f));
+// (the folder "s" holds the small copies the game starts on: same names, same rule)
+for (const dir of [path.join(dist, 'assets', 'tex'), path.join(dist, 'assets', 'tex', 's')]) {
+  if (!fs.existsSync(dir)) continue;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory() || used.has(e.name)) continue;
+    fs.rmSync(path.join(dir, e.name));
     dropped++;
   }
 }
