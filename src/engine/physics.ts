@@ -152,6 +152,14 @@ export class Physics {
     return hit ? hit.timeOfImpact : max;
   }
 
+  /** Distance to the first loose thing (a pot, a can, a ball) along a ray, or `max` when there is none. */
+  propDistance(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number): number {
+    this.aim(ox, oy, oz, dx, dy, dz);
+    // (loose things only answer to the player's layer and to each other)
+    const hit = this.world.castRay(this.ray, max, true, undefined, groups(G.PLAYER, G.PROP));
+    return hit ? hit.timeOfImpact : max;
+  }
+
   /** First solid thing along a ray: how far away it is, which way its surface faces, what it is made of. */
   rayHit(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number, withProps = false): RayHit | null {
     this.aim(ox, oy, oz, dx, dy, dz);
