@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Globals } from './materials';
+import { patient } from './patient';
 import { skyFragment, skyVertex } from './shaders/post.glsl';
 
 /** The sky dome plus the reflection map made from the same picture. */
@@ -34,7 +35,7 @@ export class Sky {
 
   /** `url` is the sqrt-encoded equirect sky picture, `range` its brightness scale. */
   async load(renderer: THREE.WebGLRenderer, url: string, range: number): Promise<void> {
-    const img = await new THREE.ImageLoader().loadAsync(url);
+    const img = await patient(() => new THREE.ImageLoader().loadAsync(url));
     const tex = new THREE.Texture(img);
     tex.flipY = false;
     tex.colorSpace = THREE.NoColorSpace;

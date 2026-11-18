@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { plainNumbers } from './geometry';
+import { get, patient } from './patient';
 import { Pictures } from './pictures';
 import { FLAT_MIX, Materials, type LightRef, type MatDesc, setProbe } from './materials';
 
@@ -331,8 +332,8 @@ export async function loadWorld(
   const root = `${import.meta.env.BASE_URL}assets/`;
   const base = `${root}${set}/`;
   const [info, descs] = await Promise.all([
-    fetch(`${base}world.json`).then((r) => r.json() as Promise<WorldInfo>),
-    fetch(`${base}materials.json`).then((r) => r.json() as Promise<Record<string, MatDesc>>),
+    get(`${base}world.json`).then((r) => r.json() as Promise<WorldInfo>),
+    get(`${base}materials.json`).then((r) => r.json() as Promise<Record<string, MatDesc>>),
   ]);
   const pictures = new Pictures(options.pictureScale ?? 1, options.parallel ?? 8, info.small === true);
   const materials = new Materials(root, descs, maxAnisotropy, undefined, pictures);
@@ -364,7 +365,7 @@ export async function loadWorld(
     const gl = info.ground_light;
     const tex = lightTexture(null, base + gl.file, false);
     pending.push(
-      new THREE.ImageLoader().loadAsync(base + gl.file).then((img) => {
+      patient(() => new THREE.ImageLoader().loadAsync(base + gl.file)).then((img) => {
         tex.image = img;
         tex.needsUpdate = true;
         const open = info.sky_irradiance_up.map((v) => v / Math.PI) as [number, number, number];
@@ -404,7 +405,7 @@ export async function loadWorld(
         light.planar = { x0: chunk.tile_origin[0], z0: chunk.tile_origin[1], size: chunk.tile_size };
       }
     }
-    const data = await gltf.loadAsync(base + ((options.lite && chunk.lite) || chunk.file));
+    const data = await patient(() => gltf.loadAsync(base + ((options.lite && chunk.lite) || chunk.file)));
     plainNumbers(data.scene);
     data.scene.updateMatrixWorld(true);
     const flats: THREE.Mesh[] = [];
@@ -444,7 +445,7 @@ export async function loadWorld(
 
   const scatterGroups: ScatterGroup[] = [];
   const scatterJobs = scatter.map(async ([key, model]) => {
-    const data = await gltf.loadAsync(base + ((options.lite && model.lite) || model.file));
+    const data = await patient(() => gltf.loadAsync(base + ((options.lite && model.lite) || model.file)));
     plainNumbers(data.scene);
     const count = model.matrices.length / 16;
     const plant = model.plant !== false;

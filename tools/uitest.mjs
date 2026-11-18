@@ -4,6 +4,7 @@
 //
 // Title screen -> name and coat -> settings -> start -> run about -> pause -> carry on -> battery runs out ->
 // "clip posted" screen -> run it back -> back to menu. Then the same start on a phone with touch controls.
+// Then the game is loaded once more from a server that refuses every eighth file the first time.
 // Pictures land in build/uitest/. Exits with code 1 when a step fails or the browser reports an error.
 // With --dist it tests the built game in dist/ (what gets published) instead of the dev server,
 // with --url a copy that is already online.
@@ -337,6 +338,50 @@ const ready = async (page) => {
       return r.left >= -1 && r.right <= innerWidth + 1;
     });
     if (!fits) throw new Error('the end panel is wider than the screen');
+  });
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------- a busy server
+// A host under load answers "busy, try later" (503) for a file now and then, and so does mobile data in its
+// own way. Here every eighth file of the estate is refused the first time it is asked for. The game has to
+// ask again by itself and end up with every wall and every picture. (Not on a live copy: nobody needs the
+// whole estate downloaded a third time for this.)
+if (urlAt < 0) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => problems.push(`[busy server pageerror] ${e.message}`));
+  const asked = new Set();
+  let refused = 0;
+  let count = 0;
+  await page.route(/\/assets\/.+\.(glb|webp|png|json|bin)(\?.*)?$/, async (route) => {
+    const u = route.request().url();
+    // the small copies are meant to be given up on at once: leave those alone
+    if (/\/s\/[^/]+$/.test(u) || asked.has(u)) return route.continue();
+    asked.add(u);
+    if (++count % 8 === 0) {
+      refused++;
+      return route.fulfill({ status: 503, body: 'busy' });
+    }
+    return route.continue();
+  });
+  await page.goto(`${url}?set=${set}`);
+  await step('busy server: the game asks again for every file it was refused', async () => {
+    await ready(page);
+    await page.waitForFunction(() => window.__wc.game.world.pictures.owed === 0, null, { timeout: 180000 });
+    const r = await page.evaluate(() => {
+      const g = window.__wc.game;
+      let meshes = 0;
+      g.world.group.traverse((o) => {
+        if (o.isMesh) meshes++;
+      });
+      return { failed: g.world.pictures.failed, meshes, chunks: g.world.info.chunks.length };
+    });
+    console.log(`      ${refused} of ${count} files refused once; ${r.failed.length} pictures missing in the end; ${r.meshes} parts of the estate in place`);
+    if (refused < 20) throw new Error('the test refused too few files to mean anything');
+    if (r.failed.length) throw new Error(`${r.failed.length} pictures never arrived, e.g. ${r.failed[0]}`);
+    if (r.meshes < r.chunks) throw new Error('parts of the estate are missing');
+    await shot(page, 'busy_1_title');
   });
   await ctx.close();
 }
