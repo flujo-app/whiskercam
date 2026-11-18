@@ -4,7 +4,9 @@
 //   1. the sun, per pixel (so bumps and gloss stay crisp), switched on and off by the baked
 //      "how much sun reaches this spot" map and by the live shadow of moving things
 //   2. baked sky + bounce light (the slow film-quality part, worked out in Blender)
-//   3. mirror-like reflection of the surroundings, dimmed where the baked light says a spot is enclosed
+//   3. mirror-like reflection of the surroundings. Shiny things near a "probe" (an all-round picture of the
+//      place, taken by the game itself, see reflections.ts) look their reflection up in it; everything else
+//      mirrors the sky, dimmed where the baked light says a spot is enclosed
 //
 // Light source variants (pick one with a #define):
 //   LM_UV      baked maps, addressed by the mesh's second UV set          (buildings, kerbs, props)
@@ -32,6 +34,10 @@ uniform vec2 uUvScale;
 uniform vec4 uLmXform;      // LM_PLANAR: lm uv = world.xz * xy + zw
 uniform float uTime;
 uniform vec3 uWind;         // xy = direction on the ground plane, z = strength
+// While a probe takes its picture from inside a car, that car is left out: everything in this box is skipped.
+uniform vec4 uHideBox;      // xyz = centre, w = 1 when in use
+uniform vec4 uHideDir;      // xy = the box's long axis on the ground plane, z = half length, w = half width
+uniform vec2 uHideY;        // bottom, top
 
 varying vec3 vWorldPos;
 varying vec3 vNormal;
@@ -78,6 +84,12 @@ void main() {
     vBaked = color;
   #endif
   gl_Position = projectionMatrix * viewMatrix * wp;
+  if (uHideBox.w > 0.5) {
+    vec3 q = wp.xyz - uHideBox.xyz;
+    float along = q.x * uHideDir.x + q.z * uHideDir.y;
+    float across = q.z * uHideDir.x - q.x * uHideDir.y;
+    if (abs(along) < uHideDir.z && abs(across) < uHideDir.w && wp.y > uHideY.x && wp.y < uHideY.y) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+  }
 }
 `;
 
@@ -130,6 +142,19 @@ uniform float uShadowOn;
 #ifdef PAINT
   uniform vec3 uPaintColor;
   uniform float uPaintWear;
+#endif
+#ifdef PROBE
+  uniform samplerCube uProbe;    // rgb = what the surroundings look like from uProbePos, a = how far away they are
+  uniform vec3 uProbePos;
+  uniform float uProbeLod;       // number of the smallest copy of the picture
+  uniform float uProbeOn;        // 0 until the picture has been taken, then 1
+#endif
+#ifdef GLASS
+  uniform float uClear;          // how much light a see-through pane lets pass (0 = nothing behind it is drawn)
+  uniform sampler2D uMirror;     // true mirror image of the nearest glass wall (see reflections.ts)
+  uniform mat4 uMirrorMat;
+  uniform vec4 uMirrorPlane;     // xyz = the wall's outward direction, w = its distance from the origin
+  uniform float uMirrorOn;
 #endif
 #ifdef GRIME
   uniform float uGrime;          // how dirty the sheltered spots get (0 = spotless)
@@ -219,6 +244,36 @@ float shadowPcf(sampler2D map, vec3 sc, float texel) {
   s += shadowTap(map, vec3(sc.xy + rot * vec2(0.97, 0.45) * texel, sc.z));
   return s / 8.0;
 }
+
+#ifdef PROBE
+// How far is the point x + R d (seen from the probe) in front of (-) or behind (+) what the probe saw there?
+// (Distances are read from a smaller, smoothed copy of the picture: among leaves and railings the exact
+// distance jumps from pixel to pixel, and a reflection that follows every jump breaks up into blotches.)
+float probeGap(vec3 x, vec3 R, float d, out vec3 y) {
+  y = x + R * d;
+  return length(y) - textureLod(uProbe, y, 2.0).a;
+}
+
+// A ray leaves the surface at P in direction R. In which direction did the probe see whatever that ray runs
+// into? (The probe stands somewhere else, so this is not simply R: near things shift a lot, far things hardly.)
+vec3 probeDir(vec3 P, vec3 R) {
+  vec3 x = P - uProbePos;
+  vec3 y0, y1;
+  // first guess: what the probe sees along R, taken as a wall square to R
+  float d0 = max(textureLod(uProbe, R, 2.0).a - dot(x, R), 0.03);
+  float f0 = probeGap(x, R, d0, y0);
+  // one step towards the real surface, then a straight-line fit through both tries
+  float d1 = max(d0 - f0 / max(dot(normalize(y0), R), 0.3), 0.03);
+  float f1 = probeGap(x, R, d1, y1);
+  float den = f1 - f0;
+  float d2 = abs(den) > 1e-4 ? d1 - f1 * (d1 - d0) / den : d1;
+  return x + R * clamp(d2, 0.03, 2.0 * max(d0, d1) + 1.0);
+}
+
+vec3 probeLight(vec3 dir, float rough) {
+  return textureLod(uProbe, dir, uProbeLod * rough * (1.7 - 0.7 * rough)).rgb;
+}
+#endif
 
 float liveShadow(vec3 wp, vec3 n) {
   if (uShadowOn < 0.5) return 1.0;
@@ -313,6 +368,15 @@ void main() {
     #endif
   #endif
 
+  #ifdef GLASS
+    // window glass is never quite flat: the mirror image wobbles a little as you move past
+    {
+      vec3 gp = vWorldPos * 2.3;
+      vec3 wob = vec3(vnoise(gp.xy + gp.z), vnoise(gp.yz + 5.3 + gp.x), vnoise(gp.zx + 9.1 + gp.y)) - 0.5;
+      N = normalize(N + (wob - N * dot(wob, N)) * 0.012);
+    }
+  #endif
+
   #ifdef MACRO
     // large-scale blotches so a tiled scan does not read as a pattern
     float blot = fbm(vWorldPos.xz * 0.21) * 0.6 + fbm(vWorldPos.xz * 1.3) * 0.4;
@@ -366,6 +430,9 @@ void main() {
   float NoL = max(dot(N, L), 0.0);
   float NoV = max(dot(N, V), 1e-4);
   vec3 f0 = mix(vec3(0.04), albedo, metal);
+  #ifdef GLASS
+    f0 = vec3(0.07);   // two panes, four surfaces
+  #endif
   vec3 diffuse = albedo * (1.0 - metal);
   vec3 H = normalize(L + V);
   float NoH = max(dot(N, H), 0.0);
@@ -389,15 +456,48 @@ void main() {
   vec3 R = reflect(-V, N);
   R = normalize(mix(R, N, a * a));
   float lod = uEnvMaxLod * rough * (2.0 - rough);
-  vec3 env = textureLod(uEnvMap, R, lod).rgb * uEnvIntensity;
   float specOcc = clamp(pow(NoV + open * ao, exp2(-16.0 * rough - 1.0)) - 1.0 + open * ao, 0.0, 1.0);
-  color += env * envBrdfApprox(f0, rough, NoV) * specOcc;
+  vec3 env = textureLod(uEnvMap, R, lod).rgb * uEnvIntensity * specOcc;
+  #ifdef PROBE
+    // the real surroundings (the probe's picture already has whatever stands in the way of the sky)
+    // (a rough surface smears its reflection anyway: no need to place it to the centimetre, and the placing
+    // gets shaky for rays that skim along a floor)
+    vec3 seen = mix(normalize(probeDir(vWorldPos, R)), R, smoothstep(0.2, 0.42, rough));
+    env = mix(env, probeLight(seen, rough), uProbeOn);
+  #endif
+  #ifdef GLASS
+    // right in front of a glass wall the mirror image is the real thing, the cat included
+    {
+      vec4 mc = uMirrorMat * vec4(vWorldPos + (N - Ng) * 4.0, 1.0);
+      vec2 muv = mc.xy / mc.w * 0.5 + 0.5;
+      float onWall = step(0.995, dot(Ng, uMirrorPlane.xyz)) * step(abs(dot(vWorldPos, uMirrorPlane.xyz) - uMirrorPlane.w), 0.12);
+      vec2 edge = smoothstep(vec2(0.0), vec2(0.06), muv) * smoothstep(vec2(0.0), vec2(0.06), 1.0 - muv);
+      float mw = uMirrorOn * onWall * edge.x * edge.y * step(0.0, mc.w);
+      if (mw > 0.001) env = mix(env, texture2D(uMirror, muv).rgb, mw);
+    }
+  #endif
+  color += env * envBrdfApprox(f0, rough, NoV);
 
   #ifdef COAT
-    // clear lacquer on car paint
-    float Fc = 0.04 + 0.96 * pow(1.0 - NoV, 5.0);
-    vec3 Rc = reflect(-V, Ng);
-    color = color * (1.0 - Fc) + textureLod(uEnvMap, Rc, 0.6).rgb * uEnvIntensity * Fc * mix(0.35, 1.0, open);
+    // clear lacquer on car paint. It is never glass-flat: seen from close by, what it mirrors wobbles a little
+    // ("orange peel"), and metallic paint has flakes in it that catch the sun one by one.
+    float close = 1.0 - smoothstep(0.3, 1.6, dist);
+    vec3 pq = vWorldPos * 160.0;
+    vec3 peel = vec3(vnoise(pq.xy + pq.z), vnoise(pq.yz + 3.1 + pq.x), vnoise(pq.zx + 7.7 + pq.y)) - 0.5;
+    vec3 Nc = normalize(Ng + (peel - Ng * dot(peel, Ng)) * (0.009 * close));
+    float Fc = 0.06 + 0.94 * pow(1.0 - max(dot(Nc, V), 0.0), 5.0);
+    vec3 Rc = reflect(-V, Nc);
+    if (metal > 0.3 && close > 0.01) {
+      vec3 cell = floor(vWorldPos * 1400.0);
+      vec3 tip = vec3(hash12(cell.xy + cell.z * 7.3), hash12(cell.yz + cell.x * 3.7), hash12(cell.zx + cell.y * 5.1)) - 0.5;
+      float glint = pow(max(dot(normalize(Ng + tip * 0.5), H), 0.0), 220.0);
+      color += uSunColor * (0.3 + 0.7 * albedo) * (glint * NoL * sunVis * metal * close * 0.6);
+    }
+    vec3 lacquer = textureLod(uEnvMap, Rc, 0.6).rgb * uEnvIntensity * mix(0.35, 1.0, open);
+    #ifdef PROBE
+      lacquer = mix(lacquer, probeLight(probeDir(vWorldPos, Rc), 0.05), uProbeOn);
+    #endif
+    color = color * (1.0 - Fc) + lacquer * Fc;
     float NoHc = max(dot(Ng, H), 0.0);
     color += uSunColor * (max(dot(Ng, L), 0.0) * sunVis) * (0.04 + 0.96 * pow(1.0 - VoH, 5.0)) * D_GGX(NoHc, 0.0025) * 0.25;
   #endif
@@ -406,6 +506,12 @@ void main() {
   float fog = 1.0 - exp(-dist * uFogDensity);
   color = mix(color, uFogColor, fog);
 
+  #ifdef CLEAR
+    // A see-through pane: what is behind it shows, dimmed by the tint and by whatever the glass throws back.
+    // (Written for "what I add, how much of the rest I keep": the mirror image stays at full strength.)
+    float back = uClear * (1.0 - (0.07 + 0.93 * pow(1.0 - NoV, 5.0)));
+    alphaOut = 1.0 - back;
+  #endif
   gl_FragColor = vec4(color, alphaOut);
 }
 `;

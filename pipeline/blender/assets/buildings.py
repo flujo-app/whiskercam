@@ -518,21 +518,21 @@ def p_entrance_door(w=1.9, h=2.35) -> G:
     xm = 1.16
     bx((xm, R, 0.018), (xm + 0.07, R + d, 2.08))
     bx((t, R, 2.08), (w - t, R + d, 2.15))
-    # door leaf
+    # door leaf: glass nearly down to the floor (a cat on the landing can see itself in it), a rail at push height
     lx0, lx1, lz0, lz1 = t + 0.005, xm - 0.005, 0.022, 2.075
     ly0, ly1 = R + 0.006, R + 0.066
-    st, top, bot = 0.1, 0.1, 0.43
+    st, top, bot = 0.1, 0.1, 0.11
+    mid0, mid1 = 0.98, 1.05
     bx((lx0, ly0, lz0), (lx0 + st, ly1, lz1))
     bx((lx1 - st, ly0, lz0), (lx1, ly1, lz1))
     bx((lx0 + st, ly0, lz1 - top), (lx1 - st, ly1, lz1))
     bx((lx0 + st, ly0, lz0), (lx1 - st, ly1, lz0 + bot))
+    bx((lx0 + st, ly0, mid0), (lx1 - st, ly1, mid1))
     gy = ly0 + 0.03
-    g.poly([(lx0 + st, gy, lz0 + bot), (lx1 - st, gy, lz0 + bot), (lx1 - st, gy, lz1 - top), (lx0 + st, gy, lz1 - top)],
-           "GLASS_DOOR", nrm=(0, -1, 0))
-    # kick plate and letter plate
-    bx((lx0 + 0.012, ly0 - 0.003, lz0 + 0.012), (lx1 - 0.012, ly0, lz0 + 0.27), "steel", 0.0012)
-    bx((lx0 + 0.36, ly0 - 0.007, lz0 + 0.30), (lx0 + 0.70, ly0, lz0 + 0.40), "steel", 0.0025)
-    bx((lx0 + 0.385, ly0 - 0.0085, lz0 + 0.335), (lx0 + 0.675, ly0 - 0.006, lz0 + 0.362), "black", 0.0)
+    for za, zb in ((lz0 + bot, mid0), (mid1, lz1 - top)):
+        g.poly([(lx0 + st, gy, za), (lx1 - st, gy, za), (lx1 - st, gy, zb), (lx0 + st, gy, zb)], "GLASS_DOOR", nrm=(0, -1, 0))
+    # kick strip on the bottom rail
+    bx((lx0 + 0.012, ly0 - 0.003, lz0 + 0.012), (lx1 - 0.012, ly0, lz0 + 0.095), "steel", 0.0012)
     # pull handle with two stand-offs, lock rosette
     hx = lx1 - 0.08
     g.add(cyl((hx, ly0 - 0.068, 0.78), (hx, ly0 - 0.068, 1.6), 0.016, "steel", segs=10))

@@ -23,6 +23,20 @@ export interface MatDesc {
   fade?: [number, number];
   /** how dirty sheltered spots get, 0..1 (built surfaces only; default 0.85) */
   grime?: number;
+  /** glass you can see through: the share of light it lets pass (car windows, lamp covers) */
+  clear?: number;
+}
+
+/**
+ * An all-round picture of one place, in which nearby shiny surfaces look up their reflection
+ * (made and kept up to date by reflections.ts). Every material that uses it shares these four values.
+ */
+export interface ProbeRef {
+  id: string;
+  uProbe: THREE.IUniform;
+  uProbePos: THREE.IUniform;
+  uProbeLod: THREE.IUniform;
+  uProbeOn: THREE.IUniform;
 }
 
 /** Baked light for one chunk. */
@@ -63,6 +77,15 @@ export function makeGlobals() {
     uGroundXform: { value: new THREE.Vector4(1, 1, 0, 0) },
     uTime: { value: 0 },
     uWind: { value: new THREE.Vector3(0.8, 0.6, 0.012) },
+    // the car that is left out while a reflection picture is taken from inside it (see world.glsl.ts)
+    uHideBox: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uHideDir: { value: new THREE.Vector4(1, 0, 1, 1) },
+    uHideY: { value: new THREE.Vector2(0, 0) },
+    // the true mirror image of the glass wall the cat is standing in front of
+    uMirror: { value: white as THREE.Texture },
+    uMirrorMat: { value: new THREE.Matrix4() },
+    uMirrorPlane: { value: new THREE.Vector4(0, 0, 1, 0) },
+    uMirrorOn: { value: 0 },
   };
 }
 export type Globals = ReturnType<typeof makeGlobals>;
@@ -111,15 +134,34 @@ export class Materials {
    * Material `name`, lit by the given baked light map. Without one, `mode` says where light comes from:
    * 'vertex' (baked into the mesh), 'ground' (the ground light picture) or 'probe' (set per object).
    */
-  get(name: string, light: LightRef | null, opts: { mode?: 'probe' | 'ground' | 'vertex'; plant?: boolean } = {}): THREE.ShaderMaterial {
+  get(
+    name: string,
+    light: LightRef | null,
+    opts: { mode?: 'probe' | 'ground' | 'vertex'; plant?: boolean; reflect?: ProbeRef } = {},
+  ): THREE.ShaderMaterial {
     const mode = opts.mode ?? 'probe';
     const plant = opts.plant ?? true;
-    const key = `${name}|${light?.id ?? mode}|${plant ? 'p' : 's'}`;
+    const key = `${name}|${light?.id ?? mode}|${plant ? 'p' : 's'}|${opts.reflect?.id ?? ''}`;
     const hit = this.cache.get(key);
     if (hit) return hit;
-    const mat = this.build(name, light, mode, plant);
+    const mat = this.build(name, light, mode, plant, opts.reflect);
     this.cache.set(key, mat);
     return mat;
+  }
+
+  /** The same material, looking its reflections up in `probe`. */
+  reflecting(mat: THREE.ShaderMaterial, probe: ProbeRef): THREE.ShaderMaterial {
+    const made = (mat.userData as { made?: { light: LightRef | null; mode: 'probe' | 'ground' | 'vertex'; plant: boolean } }).made;
+    if (!made) return mat;
+    const copy = this.get(mat.name, made.light, { mode: made.mode, plant: made.plant, reflect: probe });
+    // values set per chunk after the material was made
+    (copy.uniforms.uLmSunSize.value as THREE.Vector2).copy(mat.uniforms.uLmSunSize.value as THREE.Vector2);
+    return copy;
+  }
+
+  /** What a material is made of (kind, colour, gloss), as described by the pipeline. */
+  describe(name: string): MatDesc | undefined {
+    return this.descs[name];
   }
 
   /** A material of its own for one moving object (its light values are set per object, see setProbe). */
@@ -133,7 +175,13 @@ export class Materials {
     return this.build(name, null, 'probe', false);
   }
 
-  private build(name: string, light: LightRef | null, mode: 'probe' | 'ground' | 'vertex', plant: boolean): THREE.ShaderMaterial {
+  private build(
+    name: string,
+    light: LightRef | null,
+    mode: 'probe' | 'ground' | 'vertex',
+    plant: boolean,
+    reflect?: ProbeRef,
+  ): THREE.ShaderMaterial {
     const d: MatDesc = this.descs[name] ?? { kind: 'flat', color: [0.5, 0.5, 0.5], rough: 0.7 };
     const defines: Record<string, string | number> = {};
     const g = this.globals;
@@ -198,7 +246,25 @@ export class Materials {
     }
     if (d.tint) (u.uColor.value as THREE.Color).setRGB(d.tint[0], d.tint[1], d.tint[2]);
 
+    if (reflect) {
+      defines.PROBE = 1;
+      u.uProbe = reflect.uProbe;
+      u.uProbePos = reflect.uProbePos;
+      u.uProbeLod = reflect.uProbeLod;
+      u.uProbeOn = reflect.uProbeOn;
+    }
+    let premultiplied = false;
     switch (d.kind) {
+      case 'glass':
+        defines.GLASS = 1;
+        u.uClear = { value: d.clear ?? 0 };
+        if (d.clear) {
+          // car windows and lamp covers: what is behind them is drawn first, the pane goes on top
+          defines.CLEAR = 1;
+          transparent = true;
+          premultiplied = true;
+        }
+        break;
       case 'tile':
         (u.uUvScale.value as THREE.Vector2).setScalar(1 / (d.size ?? 2));
         defines.DETAIL = 1;
@@ -262,6 +328,8 @@ export class Materials {
       transparent,
       depthWrite: !transparent,
     });
+    mat.userData.made = { light, mode, plant };
+    mat.premultipliedAlpha = premultiplied;
     // soft cut-out edges where the picture is drawn with edge smoothing (see world.glsl.ts)
     if (defines.ALPHATEST) mat.alphaToCoverage = true;
     if (d.kind === 'roadpaint') {

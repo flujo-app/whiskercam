@@ -420,6 +420,7 @@ uniform sampler2D uSky;
 uniform float uSkyRange;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
+uniform float uSunDisc;   // 0 in the pictures that reflections are looked up in: surfaces add the sun's glint themselves
 varying vec3 vDir;
 void main() {
   vec3 d = normalize(vDir);
@@ -428,7 +429,7 @@ void main() {
   vec3 col = t * t * uSkyRange;
   float c = dot(d, uSunDir);
   // the sun itself (kept far below its true brightness so the glow stays controllable) and its halo
-  col += uSunColor * (smoothstep(0.99995, 0.99999, c) * 900.0 + pow(max(c, 0.0), 900.0) * 6.0 + pow(max(c, 0.0), 60.0) * 0.25);
+  col += uSunColor * ((smoothstep(0.99995, 0.99999, c) * 900.0 + pow(max(c, 0.0), 900.0) * 6.0) * uSunDisc + pow(max(c, 0.0), 60.0) * 0.25);
   gl_FragColor = vec4(col, 1.0);
 }
 `;

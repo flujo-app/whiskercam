@@ -51,6 +51,7 @@ async function start(): Promise<void> {
     size: size && size.length === 2 ? [size[0], size[1]] : undefined,
     manual,
     lean: touchDevice || params.has('lean'),
+    reflections: params.has('refl') ? Number(params.get('refl')) : undefined,
     msaa: params.has('msaa') ? Number(params.get('msaa')) : undefined,
     pictureScale: params.has('pics') ? Number(params.get('pics')) : undefined,
     onProgress: (f, text) => {
