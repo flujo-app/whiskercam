@@ -343,6 +343,7 @@ export class Game {
         refl.follow(null);
       }
       refl.setMirror(null);
+      this.session.atMirror = false;
       return;
     }
     const eye = this.eye.copy(this.rig.rig.position);
@@ -373,6 +374,8 @@ export class Game {
     }
     // (it comes in gently as the cat walks up, so the looked-up reflection does not jump to the true one)
     refl.setMirror(best ? eye : null, best, (3.6 - bestAway) / 0.9);
+    // close to glass that reaches down to its own height, and looking at it: the cat can see itself
+    this.session.atMirror = !!best && !this.freeCam && bestAway < 1.7 && best.y0 < eye.y + 0.2 && fx * best.nx + fz * best.nz < -0.55;
   }
 
   /** One fixed step of the world. */

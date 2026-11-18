@@ -95,6 +95,10 @@ export class Session {
   private readonly tmpB = new THREE.Vector3();
   private warned = false;
   private meowCool = 0;
+  /** set by the game while the cat stands in front of a glass door, close enough to see itself in it */
+  atMirror = false;
+  private mirrorFor = 0;
+  private mirrorCool = 0;
   private wasWinded = false;
   private meowScore = 0;
   private answerIn = 0;
@@ -586,6 +590,13 @@ export class Session {
     // ran itself out of breath: say so once each time
     if (this.player.winded && !this.wasWinded && this.phase === 'play') this.say('Out of breath', 1.4);
     this.wasWinded = this.player.winded;
+    // stopped to look at the cat in the glass: worth a moment of the clip (once in a while)
+    this.mirrorCool = Math.max(0, this.mirrorCool - dt);
+    this.mirrorFor = this.atMirror && this.phase === 'play' && Math.abs(this.player.speed) < 1.2 ? this.mirrorFor + dt : 0;
+    if (this.mirrorFor > 0.9 && this.mirrorCool <= 0) {
+      this.score.add('mirror');
+      this.mirrorCool = 45;
+    }
     // a meow on demand; the brother answers when he is close enough to hear it
     this.meowCool = Math.max(0, this.meowCool - dt);
     this.meowScore = Math.max(0, this.meowScore - dt);

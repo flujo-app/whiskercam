@@ -19,17 +19,19 @@ export type Deed =
   | 'lostDuel'
   | 'pigeons'
   | 'meow'
-  | 'climb';
+  | 'climb'
+  | 'mirror';     // stopped to look at the cat in the glass door
 
 const BASE: Record<Deed, number> = {
   chase: 140, tag: 4500, knock: 900, undercar: 1400, hedge: 700, zoomies: 1200, jump: 450, slap: 350, counter: 800,
-  dodge: 500, turf: 12000, flawless: 6000, lostDuel: 600, pigeons: 1500, meow: 250, climb: 2400,
+  dodge: 500, turf: 12000, flawless: 6000, lostDuel: 600, pigeons: 1500, meow: 250, climb: 2400, mirror: 1800,
 };
 
 const LABEL: Partial<Record<Deed, string>> = {
   tag: 'Tagged Rocket', knock: 'Knocked it over', undercar: 'Under the car', hedge: 'Through the hedge',
   zoomies: 'Zoomies', jump: 'Big jump', counter: 'Got in first', dodge: 'Made them miss', turf: 'Turf taken',
   flawless: 'Not a scratch', lostDuel: 'Took a slapping', pigeons: 'Scattered the pigeons', meow: 'Said hello', climb: 'Up a tree',
+  mirror: 'Who is that?',
 };
 
 const KNOCK_NAMES: Record<string, [string, number]> = {
@@ -83,6 +85,7 @@ const LINES: Record<string, string[]> = {
   blocked: ['batted away', 'stop flailing!!', 'wait for it', 'patience, small tiger'],
   rivalWinded: ['he is puffed, GO', 'now now now', 'out of breath lol'],
   meow: ['he said hello', 'MEOW', 'talkative today', 'someone translate that', 'he is calling his brother'],
+  mirror: ['HE SEES HIMSELF', 'who is that handsome cat', 'the other cat has a camera too', 'he does not know it is him', 'main character moment', 'staring contest with himself', 'the cat in the door started it'],
 };
 
 export class Score {
