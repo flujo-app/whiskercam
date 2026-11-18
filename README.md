@@ -31,15 +31,22 @@ card in the picture: save it, or share it straight to a video app from a phone.
 | Run | W (S to back up) | left thumb | left stick |
 | Sprint | Shift | push the stick far | right trigger |
 | Steer | mouse, or A / D | left thumb, or drag on the right | left stick, right stick |
-| Pounce (a high jump from a standstill, or at something to land on) | Space | Jump button | A |
+| Jump: tap to pounce, hold to leap higher. With a car, a wall or a window sill ahead, the cat lands on it | Space | Jump button | A |
 | Climb a tree or a fence | push against it, or jump at it | same | same |
 | Paw swipe / slap | left and right mouse button, or Q / E | paw buttons | X / B |
 | Pull back in a fight | S | Jump button | Y |
 | Meow | F | | |
 | Pause | Esc | | Start |
 
-The picture is upright, like a phone clip, on every screen. How much the camera shakes can be set on the
-title screen and on the pause screen (it is steady by default, and steadier still on phones).
+The picture is upright, like a phone clip, on every screen. A new player starts with the steadiest camera,
+the quickest turning and the sharpest picture; all three can be changed on the title screen, the first two
+on the pause screen as well.
+
+The game speaks English, German, Spanish, French, Italian, Dutch, Polish, Portuguese and Turkish. It follows
+the browser's language; "Language" in the settings overrides that. Another language is one file: copy
+`src/i18n/en.ts` (the notes for translators are at its top), translate the values, and add the language to
+the two lists in `src/i18n/index.ts`. `npm test` then checks that nothing is missing and every blank is
+still there, and `node tools/uitest.mjs estate` that every label fits the screen.
 
 ## How it is made
 
@@ -75,8 +82,9 @@ into `public/`.
 npm test          logic tests (fights, scoring, paths)
 npm run typecheck
 node tools/playtest.mjs estate    a bot plays a whole round in a hidden browser
-node tools/roamtest.mjs estate    the cat is sent at every kerb, stair, pipe, car, tree, fence and hedge
-node tools/uitest.mjs estate      clicks through every screen at desktop and phone size
+node tools/roamtest.mjs estate    the cat is sent at every kerb, stair, pipe, car, tree, fence and hedge,
+                                  and jumps onto everything it could stand on, 1,500 different ways
+node tools/uitest.mjs estate      clicks through every screen at desktop and phone size, in every language
 node tools/bench.mjs estate       how long a frame takes at several spots
 ```
 

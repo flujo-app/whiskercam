@@ -1,7 +1,7 @@
 {
   "name": "whiskercam",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A day on the estate, filmed from under a cat's chin. A browser game.",
   "license": "MIT",
   "type": "module",

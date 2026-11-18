@@ -4,7 +4,8 @@
 //
 // Title screen -> name and coat -> settings -> start -> run about -> pause -> carry on -> battery runs out ->
 // "clip posted" screen -> run it back -> back to menu. Then the same start on a phone with touch controls.
-// Then the game is loaded once more from a server that refuses every eighth file the first time.
+// Then once in a browser set to German, and once more from a server that refuses every eighth file the
+// first time. Along the way every language is put on every screen to see that it fits.
 // Pictures land in build/uitest/. Exits with code 1 when a step fails or the browser reports an error.
 // With --dist it tests the built game in dist/ (what gets published) instead of the dev server,
 // with --url a copy that is already online.
@@ -72,9 +73,128 @@ const ready = async (page) => {
   await page.waitForTimeout(1800); // the loading screen fades out
 };
 
+// ---------------------------------------------------------------- checks used on more than one screen size
+/** A player who has never played: sharpest picture, steadiest camera, quickest turning (asked for in 1.2.1). */
+const startingValues = async (page) => {
+  const v = await page.evaluate(() => {
+    const value = (key) => document.querySelector(`.screen.title input[data-setting="${key}"]`);
+    const picture = document.querySelector('.screen.title details.settings label:not(.language) select');
+    return {
+      picture: picture?.value,
+      turning: [value('sensitivity')?.value, value('sensitivity')?.max],
+      shake: [value('motion')?.value, value('motion')?.min],
+      scale: window.__wc.game.opts.quality,
+    };
+  });
+  if (v.picture !== '2' || v.scale < 1.2) throw new Error(`the picture starts on step ${v.picture} (scale ${v.scale}), not on the sharpest`);
+  if (v.turning[0] !== v.turning[1]) throw new Error(`turning speed starts at ${v.turning[0]} of ${v.turning[1]}`);
+  if (v.shake[0] !== v.shake[1]) throw new Error(`camera shake starts at ${v.shake[0]}, not at its lowest (${v.shake[1]})`);
+};
+
+/**
+ * Put every language on every screen and measure: nothing may stick out of the picture, be cut off, or wrap
+ * where there is one line of room. Also every pop-up label, every hint and every fight prompt.
+ */
+const languagesFit = async (page, tag) => {
+  const result = await page.evaluate(async () => {
+    const wc = window.__wc;
+    const g = wc.game;
+    const hud = wc.hud;
+    const I = wc.i18n;
+    const root = document.getElementById('hud');
+    const box = root.getBoundingClientRect();
+    const problems = [];
+    const lineOf = (e) => parseFloat(getComputedStyle(e).lineHeight) || parseFloat(getComputedStyle(e).fontSize) * 1.3;
+    const check = (code, where) => {
+      for (const e of root.querySelectorAll('button, .field-label, .chip, .end-label, .end-unit, .logo, .tag, summary, .best, .duel-name, .duel-help, .duel-keys, .clip-note')) {
+        const r = e.getBoundingClientRect();
+        if (!r.width || !r.height || e.matches('.tbtn, .coat')) continue;
+        const text = (e.textContent || '').trim().slice(0, 40);
+        if (r.left < box.left - 1 || r.right > box.right + 1) problems.push(`${code}, ${where}: "${text}" sticks out sideways`);
+        if (e.scrollWidth > e.clientWidth + 2) problems.push(`${code}, ${where}: "${text}" is cut off`);
+        if (e.matches('button, .chip, .field-label, summary, .duel-keys')) {
+          const cs = getComputedStyle(e);
+          const lines = (r.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lineOf(e);
+          if (lines > (e.matches('.field-label') ? 2.7 : 1.7)) problems.push(`${code}, ${where}: "${text}" wraps onto ${Math.round(lines)} lines`);
+        }
+      }
+    };
+    const settle = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    const popups = root.querySelector('.popups');
+    const hint = root.querySelector('.hint');
+    const duel = root.querySelector('.duel');
+    const duelKeys = root.querySelector('.duel-keys');
+    const titles = {};
+    const s = g.session;
+    const keep = { views: s.score.views, turf: s.score.turf, tag: s.score.counts.tag, knock: s.score.counts.knock };
+    for (const { code } of I.LANGUAGES) {
+      await I.setLanguage(code);
+      I.relabel();
+      const w = I.S();
+      if (document.documentElement.lang !== code) problems.push(`${code}: the page does not say which language it is in`);
+      hud.show('title');
+      root.querySelector('details.settings')?.setAttribute('open', '');
+      await settle();
+      check(code, 'title screen');
+      hud.show('pause');
+      await settle();
+      check(code, 'pause screen');
+      // an end screen with the longest title and every chip
+      Object.assign(s.score, { views: 1234567, turf: 3 });
+      s.score.counts.tag = 1;
+      s.score.counts.knock = 12;
+      hud.showEnd(s, 'Biscuit', 0, true);
+      hud.clipReady(true, true);
+      await settle();
+      check(code, 'end screen');
+      titles[code] = s.score.title('Biscuit');
+      // while playing: every pop-up label, every hint, every fight prompt
+      hud.show('none');
+      for (const t of [...Object.values(w.deeds).map((x) => x.replace('{name}', w.names.Rocket)), ...Object.values(w.knocks)]) {
+        const row = document.createElement('div');
+        row.className = 'popup big';
+        row.innerHTML = '<span class="popup-views">+12,000</span><span class="popup-text"></span>';
+        row.lastChild.textContent = t;
+        popups.append(row);
+        const r = row.getBoundingClientRect();
+        if (r.left < box.left - 1 || r.right > box.right + 1 || r.width > box.width * 0.96) problems.push(`${code}, pop-up: "${t}" is ${Math.round(r.width)} of ${Math.round(box.width)} points wide`);
+        row.remove();
+      }
+      hint.classList.add('on');
+      const longest = Object.values(w.names).sort((a, b) => b.length - a.length)[0];
+      for (const t of [w.hints.follow, w.hints.tagged, w.hints.puffed, w.hints.rivalPuffed, w.hints.backOff, w.hints.battery, ...Object.values(w.hints.guards), ...Object.values(w.hints.won)]) {
+        hint.textContent = t.replace('{name}', longest);
+        const r = hint.getBoundingClientRect();
+        if (r.left < box.left - 1 || r.right > box.right + 1 || r.height > lineOf(hint) * 2.6) problems.push(`${code}, hint: "${hint.textContent}" does not fit`);
+      }
+      hint.textContent = '';
+      hint.classList.remove('on');
+      duel.classList.add('on');
+      for (const t of [w.duel.breathe, w.duel.wait, w.duel.batted, w.duel.pull, w.duel.puffed, w.duel.rivalPuffed, w.duel.now]) {
+        duelKeys.textContent = t;
+        const r = duelKeys.getBoundingClientRect();
+        if (r.left < box.left - 1 || r.right > box.right + 1 || r.height > lineOf(duelKeys) * 1.7 + 12) problems.push(`${code}, fight prompt: "${t}" does not fit on one line`);
+      }
+      check(code, 'fight');
+      duel.classList.remove('on');
+    }
+    Object.assign(s.score, { views: keep.views, turf: keep.turf });
+    s.score.counts.tag = keep.tag;
+    s.score.counts.knock = keep.knock;
+    await I.setLanguage('en');
+    I.relabel();
+    hud.show('title');
+    return { problems, titles, languages: I.LANGUAGES.length, start: document.querySelector('.screen.title .btn.primary')?.textContent };
+  });
+  console.log(`      ${result.languages} languages; a German clip title: ${result.titles.de}`);
+  if (result.problems.length) throw new Error(`${result.problems.length} labels do not fit: ${result.problems.slice(0, 6).join(' | ')}`);
+  if (result.start !== 'Start recording') throw new Error(`back in English the start button says "${result.start}"`);
+  await shot(page, `${tag}_languages_back_in_english`);
+};
+
 // ---------------------------------------------------------------- desktop
 {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, locale: 'en-GB' });
   const page = await ctx.newPage();
   watch(page, 'desktop');
   const t0 = Date.now();
@@ -160,6 +280,8 @@ const ready = async (page) => {
     await shot(page, 'desk_2_settings');
     await page.locator('details.settings summary').click();
   });
+  await step('desktop: a new player starts with the sharpest picture, the steadiest camera, the quickest turning', async () => startingValues(page));
+  await step('desktop: every language fits the screen, and the game comes back to English', async () => languagesFit(page, 'desk'));
   let before;
   await step('desktop: start, and the cat runs when W is held', async () => {
     await page.getByRole('button', { name: 'Start recording' }).click();
@@ -253,6 +375,7 @@ const ready = async (page) => {
     deviceScaleFactor: 2,
     hasTouch: true,
     isMobile: true,
+    locale: 'en-GB',
     userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
   });
   const page = await ctx.newPage();
@@ -277,6 +400,18 @@ const ready = async (page) => {
     if (m.mb > 330) throw new Error(`pictures take ${m.mb.toFixed(0)} MB, more than a phone can be trusted with (330 MB)`);
     if (m.parallel > 4) throw new Error('too many pictures are unpacked at once');
   });
+  await step('phone: the picture is drawn at a proper size', async () => {
+    // 1.2.0 drew a phone's two views at about 350 x 350 points and blew them up: blocks and ragged edges
+    const v = await page.evaluate(() => {
+      const g = window.__wc.game;
+      return { view: [g.rig.viewSize.x, g.rig.viewSize.y], canvas: [g.canvas.width, g.canvas.height], step: g.pacer.size, thrifty: g.thrifty };
+    });
+    console.log(`      picture ${v.canvas[0]} x ${v.canvas[1]}, each of its two views ${v.view[0]} x ${v.view[1]}`);
+    if (v.canvas[1] < 1200) throw new Error(`the picture has only ${v.canvas[1]} lines`);
+    if (v.view[1] < v.canvas[1] * 0.7) throw new Error(`the views are only ${v.view[1]} points high for a picture of ${v.canvas[1]} lines`);
+  });
+  await step('phone: a new player starts with the sharpest picture, the steadiest camera, the quickest turning', async () => startingValues(page));
+  await step('phone: every language fits the screen, and the game comes back to English', async () => languagesFit(page, 'phone'));
   await step('phone: start, touch controls appear', async () => {
     await page.getByRole('button', { name: 'Start recording' }).tap();
     await page.waitForFunction(() => window.__wc.game.session.phase === 'play', null, { timeout: 15000 });
@@ -309,13 +444,20 @@ const ready = async (page) => {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     };
     await page.waitForTimeout(600);
+    // a tap of 90 ms, the way a thumb taps: in 1.2.0 that was a hop of 30 cm
+    const y0 = await page.evaluate(() => window.__wc.game.player.y);
     await press('jump');
     let up = false;
-    for (let i = 0; i < 12 && !up; i++) {
+    let top = 0;
+    for (let i = 0; i < 16; i++) {
       await page.waitForTimeout(40);
-      up = await page.evaluate(() => window.__wc.game.player.airborne);
+      const now = await page.evaluate(() => ({ air: window.__wc.game.player.airborne, y: window.__wc.game.player.y }));
+      up ||= now.air;
+      top = Math.max(top, now.y - y0);
     }
     if (!up) throw new Error('Jump did not lift the cat');
+    console.log(`      a tap on Jump lifts the cat ${top.toFixed(2)} m`);
+    if (top < 0.38) throw new Error(`a tap on Jump only lifts the cat ${top.toFixed(2)} m`);
     await page.waitForTimeout(900);
     for (const [cls, index] of [['paw-l', 0], ['paw-r', 1]]) {
       await press(cls);
@@ -342,13 +484,70 @@ const ready = async (page) => {
   await ctx.close();
 }
 
+// ---------------------------------------------------------------- a browser set to German
+// The game follows the browser's language unless the player picks one, and remembers what they picked.
+// (Not on a live copy: nobody needs the whole estate downloaded once more for this.)
+if (urlAt < 0) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, locale: 'de-AT' });
+  const page = await ctx.newPage();
+  watch(page, 'german');
+  await page.goto(`${url}?set=${set}`);
+  await step('german browser: the game starts in German', async () => {
+    await ready(page);
+    const t = await page.evaluate(() => ({
+      lang: document.documentElement.lang,
+      start: document.querySelector('.screen.title .btn.primary')?.textContent,
+      choice: document.querySelector('.screen.title label.language select')?.value,
+    }));
+    await shot(page, 'german_1_title');
+    if (t.lang !== 'de' || t.start !== 'Aufnahme starten') throw new Error(`language "${t.lang}", start button "${t.start}"`);
+    if (t.choice !== 'auto') throw new Error(`the language setting says "${t.choice}", not automatic`);
+  });
+  await step('german browser: the run is in German too', async () => {
+    await page.getByRole('button', { name: 'Aufnahme starten' }).tap();
+    await page.waitForFunction(() => window.__wc.game.session.phase === 'play', null, { timeout: 15000 });
+    // the first hint, and something knocked over
+    const hint = await page.evaluate(() => window.__wc.game.session.hint);
+    if (hint !== 'Folge Rocket') throw new Error(`the first hint says "${hint}"`);
+    await page.evaluate(() => {
+      const s = window.__wc.game.session.score;
+      s.add('knock', 'gnome');
+      s.say('knock');
+    });
+    await page.waitForTimeout(500);
+    await shot(page, 'german_2_run');
+    const seen = await page.evaluate(() => ({ popup: document.querySelector('.popup .popup-text')?.textContent, jump: document.querySelector('.tbtn.jump')?.textContent }));
+    if (seen.popup !== 'Ein Zwerg ist gefallen' || seen.jump !== 'Sprung') throw new Error(`pop-up "${seen.popup}", jump button "${seen.jump}"`);
+    await page.evaluate(() => (window.__wc.game.session.battery = 1.2));
+    await page.waitForSelector('.screen.end', { state: 'visible', timeout: 30000 });
+    await page.waitForTimeout(800);
+    await shot(page, 'german_3_end');
+    const end = await page.evaluate(() => document.querySelector('.screen.end .end-label')?.textContent);
+    if (end !== 'Clip gepostet') throw new Error(`the end screen is headed "${end}"`);
+  });
+  await step('german browser: picking English switches at once and is remembered', async () => {
+    await page.getByRole('button', { name: 'Menü' }).tap();
+    await page.waitForSelector('.screen.title', { state: 'visible', timeout: 15000 });
+    await page.locator('details.settings summary').tap();
+    await page.locator('.screen.title label.language select').selectOption('en');
+    await page.waitForFunction(() => document.querySelector('.screen.title .btn.primary')?.textContent === 'Start recording', null, { timeout: 10000 });
+    const open = await page.evaluate(() => document.querySelector('.screen.title details.settings')?.hasAttribute('open'));
+    if (!open) throw new Error('the settings closed when the language changed');
+    await page.reload();
+    await ready(page);
+    const start = await page.evaluate(() => document.querySelector('.screen.title .btn.primary')?.textContent);
+    if (start !== 'Start recording') throw new Error(`after a reload the start button says "${start}"`);
+  });
+  await ctx.close();
+}
+
 // ---------------------------------------------------------------- a busy server
 // A host under load answers "busy, try later" (503) for a file now and then, and so does mobile data in its
 // own way. Here every eighth file of the estate is refused the first time it is asked for. The game has to
 // ask again by itself and end up with every wall and every picture. (Not on a live copy: nobody needs the
 // whole estate downloaded a third time for this.)
 if (urlAt < 0) {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, locale: 'en-GB' });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => problems.push(`[busy server pageerror] ${e.message}`));
   const asked = new Set();
