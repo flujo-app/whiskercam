@@ -83,6 +83,53 @@ const ready = async (page) => {
     console.log(`      loaded in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     await shot(page, 'desk_1_title');
   });
+  await step('desktop: the full pictures arrive, and shiny things get their surroundings to mirror', async () => {
+    // the game starts on small copies of every picture; the full ones and the reflection pictures follow
+    await page.waitForFunction(() => window.__wc.game.world.pictures.owed === 0, null, { timeout: 180000 });
+    await page.waitForFunction(() => window.__wc.game.reflections?.probes.every((p) => p.taken && p.faces >= 6), null, { timeout: 90000 });
+    const r = await page.evaluate(() => {
+      const g = window.__wc.game;
+      const probes = g.reflections.probes;
+      return { cars: probes.filter((p) => p.kind === 'car').length, walls: probes.filter((p) => p.kind === 'wall').length, failed: g.world.pictures.failed.length };
+    });
+    console.log(`      sharp after ${((Date.now() - t0) / 1000).toFixed(1)} s; reflection pictures: ${r.cars} cars, ${r.walls} stretches of wall`);
+    if (r.failed) throw new Error(`${r.failed} pictures did not load`);
+    if (r.cars < 5 || r.walls < 10) throw new Error('too few reflection pictures');
+  });
+  await step('desktop: a cat in front of a glass door sees itself', async () => {
+    const seen = await page.evaluate(async () => {
+      const wc = window.__wc;
+      const g = wc.game;
+      const r = g.reflections;
+      // on the landing of the entrance at -2.9, -25.4 (the door faces south), looking at the door
+      wc.pose(null);
+      wc.place(-3.3, 0.9, -24.3, 0);
+      await new Promise((done) => setTimeout(done, 700));
+      const eye = g.rig.rig.position.clone();
+      const wall = g.glassWalls.find((w) => w.nz === 1 && Math.abs(w.offset + 25.37) < 0.2);
+      if (!wall) return { error: 'no glass wall found at the entrance' };
+      const size = 768;
+      const read = () => {
+        r.setMirror(eye, wall, 1);
+        const px = new Uint16Array(size * size * 4);
+        g.renderer.readRenderTargetPixels(r.mirror, 0, 0, size, size, px);
+        return px;
+      };
+      const withCat = read();
+      g.playerCat.root.visible = false;
+      const without = read();
+      g.playerCat.root.visible = true;
+      const f = wc.THREE.DataUtils.fromHalfFloat;
+      let changed = 0;
+      for (let i = 0; i < withCat.length; i += 4 * 3) {
+        if (withCat[i] !== without[i] && Math.abs(f(withCat[i]) - f(without[i])) + Math.abs(f(withCat[i + 1]) - f(without[i + 1])) > 0.02) changed++;
+      }
+      return { changed: changed * 3, glassFrom: wall.y0, catAt: [g.player.x, g.player.y, g.player.z].map((v) => +v.toFixed(2)) };
+    });
+    if (seen.error) throw new Error(seen.error);
+    console.log(`      the cat takes up about ${seen.changed} of the mirror picture's ${768 * 768} points (glass starts ${seen.glassFrom.toFixed(2)} m above the ground)`);
+    if (seen.changed < 300) throw new Error('the cat does not show in the mirror image of the door');
+  });
   await step('desktop: name, coat and settings', async () => {
     await page.fill('input.name', 'Biscuit');
     await page.locator('button.coat').nth(2).click();
@@ -197,6 +244,8 @@ const ready = async (page) => {
   });
   await step('phone: the pictures fit a phone\'s memory', async () => {
     // 1.0 never started on a real phone: it unpacked about 300 full-size pictures at once
+    // (the game starts on small copies; the count that matters is with every full picture in)
+    await page.waitForFunction(() => window.__wc.game.world.pictures.owed === 0, null, { timeout: 240000 });
     const m = await page.evaluate(() => {
       const p = window.__wc.game.world.pictures;
       return { mb: p.bytes / 1e6, count: p.total, failed: p.failed.length, scale: p.scale, parallel: p.parallel };

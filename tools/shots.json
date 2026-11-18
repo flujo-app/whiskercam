@@ -23,6 +23,12 @@
     {"name": "hedge_along", "cat": {"x": 6.6, "z": 14.4, "heading": 0}, "sim": [{"move": 1, "t": 1.0}, {"turn": 1, "t": 0.5}, {"t": 0.3}]},
     {"name": "tree_climb", "cat": {"x": -17.067, "z": 28.45, "heading": 0}, "sim": [{"move": 1, "t": 1.25}]},
     {"name": "tree_fork", "cat": {"x": -17.067, "z": 28.45, "heading": 0}, "sim": [{"move": 1, "t": 2.6}, {"move": 0, "t": 1.2}]},
+    {"name": "mirror_door", "cat": {"x": -3.3, "y": 0.9, "z": -24.3, "heading": 0}, "sim": [{"pitch": 12, "t": 0.1}, {"t": 0.5}]},
+    {"name": "mirror_door_far", "pose": {"x": -2.9, "y": 0.6, "z": -21.0, "heading": 0, "pitch": 4}},
+    {"name": "car_paint", "pose": {"x": -21.8, "y": 0.18, "z": 21.3, "heading": 60, "pitch": 10}},
+    {"name": "car_cabin", "pose": {"x": -17.9, "y": 1.25, "z": 21.6, "heading": 300, "pitch": -12}},
+    {"name": "car_port", "pose": {"x": 39.3, "y": 0.35, "z": 8.6, "heading": 80, "pitch": 8}},
+    {"name": "windows", "pose": {"x": -9.0, "y": 0.4, "z": -16.5, "heading": 200, "pitch": 6}},
     {"name": "ui_title", "cat": {"x": -3.4, "z": 30.4, "heading": 10}, "ui": true},
     {"name": "ui_play", "cat": {"x": -6, "z": 18.5, "heading": 80}, "play": true, "sim": [{"move": 1, "sprint": true, "t": 5.2}], "ui": true},
     {"name": "ui_duel", "cat": {"x": 14, "z": -1, "heading": 0}, "play": true, "sim": [{"move": 1, "t": 1}, {"t": 1.5}], "ui": true}
