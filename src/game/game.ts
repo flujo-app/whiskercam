@@ -41,6 +41,20 @@ export interface GameOptions {
 
 const STEP = 1 / 60;
 
+/**
+ * Smaller pictures for devices that cannot keep up: how finely the views are drawn, and whether edges get
+ * their extra samples. A step down is only ever kept when the game demonstrably runs faster for it (see
+ * `Game.pace`). Many phones are held back by the amount of geometry, not by the number of points drawn; on
+ * those a smaller picture is just a worse picture.
+ */
+const SIZES = [
+  { scale: 1, smooth: true },
+  { scale: 0.85, smooth: true },
+  { scale: 0.72, smooth: false },
+] as const;
+/** frames slower than this on average (seconds) count as "cannot keep up": under about 47 pictures a second */
+const SLOW = 0.0215;
+
 export class Game {
   readonly scene = new THREE.Scene();
   readonly rig = new LensRig();
@@ -67,11 +81,18 @@ export class Game {
   paused = false;
   /** most picture lines drawn, whatever the screen (set by the quality setting) */
   maxLines = 1600;
-  /** 0.55 .. 1: lowered automatically when the graphics card cannot keep up */
-  private governor = 1;
-  private slowFrames = 0;
-  private fastFrames = 0;
-  /** even the smallest picture came out too slow: the grass, half the fur and the far plants are left out as well */
+  /** which of SIZES is in use */
+  private sizeStep = 0;
+  /** samples per pixel for edge smoothing at full size */
+  private readonly msaa: number;
+  /** the stretch of frames being timed: total seconds, how many, and how many still to let pass first */
+  private readonly span = { sum: 0, n: 0, skip: 90 };
+  private slowSpans = 0;
+  /** a change that is being tried out, with the frame time before it */
+  private trial: { what: 'small' | 'middle' | 'thrifty'; before: number } | null = null;
+  private sizeSettled = false;
+  private thriftSettled = false;
+  /** the grass, half the fur and the far plants are left out (only where that makes the game faster) */
   thrifty = false;
   readonly recorder: Recorder;
   readonly audio = new Audio(`${import.meta.env.BASE_URL}audio/`);
@@ -90,8 +111,10 @@ export class Game {
   private constructor(readonly renderer: THREE.WebGLRenderer, readonly canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     this.scene.add(this.rig.rig);
     this.post = new Post(renderer, this.rig);
-    // phones: no extra samples per pixel (memory), the smoothing over time still runs
-    this.post.msaa = opts.msaa ?? (opts.lean ? 0 : 4);
+    // phones: no extra samples per pixel (they cost four times the memory for the two views), the smoothing
+    // over time does the edges there
+    this.msaa = opts.msaa ?? (opts.lean ? 0 : 4);
+    this.post.msaa = this.msaa;
     this.post.lean = !!opts.lean;
     this.input = new Input(canvas);
     this.recorder = new Recorder(canvas, !!opts.lean);
@@ -235,7 +258,12 @@ export class Game {
     if ((Math.abs(q - this.opts.quality) > 1e-3 || lines !== this.maxLines) && !this.opts.size) {
       this.opts.quality = q;
       this.maxLines = lines;
-      this.governor = 1;
+      // another picture setting: start from its full size and find out afresh what this device manages
+      this.sizeStep = 0;
+      this.sizeSettled = false;
+      this.trial = null;
+      this.slowSpans = 0;
+      this.span.skip = 60;
       this.layout();
     }
     this.input.mouseSensitivity = 0.11 * s.sensitivity;
@@ -299,15 +327,91 @@ export class Game {
       h = window.innerHeight;
       w = Math.min(window.innerWidth, Math.round((h * 9) / 16));
       // a phone clip does not need more than this many lines; big screens just show it larger
-      dpr = Math.min(dpr, ((this.opts.lean ? 0.85 : 1) * this.maxLines) / h);
+      dpr = Math.min(dpr, ((this.opts.lean ? 0.9 : 1) * this.maxLines) / h);
     }
     const pw = Math.max(2, Math.round(w * dpr));
     const ph = Math.max(2, Math.round(h * dpr));
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.renderer.setSize(pw, ph, false);
-    // (the two views behind the fisheye picture hold twice its pixels at full quality; a phone draws them smaller)
-    this.post.setSize(pw, ph, this.opts.quality * this.governor * (this.opts.lean ? 0.75 : 1));
+    // (the two views behind the fisheye picture hold twice its pixels at full quality; a phone draws them a
+    // little smaller, which on its small screen still leaves every point of the picture its own point of a view)
+    const size = SIZES[this.sizeStep];
+    this.post.msaa = size.smooth ? this.msaa : 0;
+    this.post.setSize(pw, ph, this.opts.quality * size.scale * (this.opts.lean ? 0.8 : 1));
+  }
+
+  private resize(step: number): void {
+    this.sizeStep = step;
+    this.span.skip = 24;
+    this.layout();
+  }
+
+  private setThrifty(on: boolean): void {
+    this.thrifty = on;
+    if (this.grass) this.grass.mesh.visible = !on;
+    if (this.catModel) this.catModel.thrift = on ? 0.5 : 1;
+    this.span.skip = 12;
+  }
+
+  /**
+   * Keep the game smooth, without ever paying for it with a worse picture that buys nothing.
+   *
+   * Frame times are averaged over stretches of fifty frames. When two stretches in a row are slow, the game
+   * tries the smallest picture for one stretch. Only if that is clearly faster does a smaller picture stay
+   * (the middle size if that is as fast, the smallest otherwise); if not, the full picture comes back for
+   * good and the same test is made with leaving out grass, fur and far plants.
+   */
+  private pace(dt: number): void {
+    if (this.paused || this.opts.size || document.hidden) return;
+    const s = this.span;
+    // pictures still arriving and reflections still being taken make frames late by themselves: wait for calm
+    if (this.world.pictures.owed > 0 || (this.reflections?.pending ?? 0) > 0) s.skip = Math.max(s.skip, 45);
+    // (a very long frame is the tab coming back from the background, not a slow device)
+    if (dt > 0.25) s.skip = Math.max(s.skip, 30);
+    if (s.skip > 0) {
+      s.skip--;
+      s.sum = s.n = 0;
+      return;
+    }
+    s.sum += dt;
+    if (++s.n < 50) return;
+    const avg = s.sum / s.n;
+    s.sum = s.n = 0;
+    const t = this.trial;
+    if (t) {
+      this.trial = null;
+      if (t.what === 'small') {
+        if (avg < t.before * 0.88) {
+          // fewer points do make it faster here: is the middle size as fast?
+          this.trial = { what: 'middle', before: avg };
+          this.resize(1);
+        } else {
+          this.sizeSettled = true;
+          this.resize(0);
+        }
+      } else if (t.what === 'middle') {
+        this.sizeSettled = true;
+        if (avg > t.before * 1.1) this.resize(2);
+      } else {
+        this.thriftSettled = true;
+        if (avg > t.before * 0.9) this.setThrifty(false);
+      }
+      return;
+    }
+    if (avg <= SLOW) {
+      this.slowSpans = 0;
+      return;
+    }
+    if (++this.slowSpans < 2) return;
+    this.slowSpans = 0;
+    if (!this.sizeSettled) {
+      this.trial = { what: 'small', before: avg };
+      this.resize(SIZES.length - 1);
+    } else if (!this.thriftSettled) {
+      this.trial = { what: 'thrifty', before: avg };
+      this.setThrifty(true);
+    }
   }
 
   private reflectLevel = 0;
@@ -469,25 +573,7 @@ export class Game {
       if (!this.running) return;
       const dt = Math.min(0.1, (now - this.last) / 1000);
       this.last = now;
-      // keep it smooth: if frames keep coming late, draw fewer pixels; if there is room, go back up
-      if (!this.paused && dt > 0.021) this.slowFrames++;
-      else if (dt < 0.0125) this.fastFrames++;
-      if (this.slowFrames > 45 && this.governor > 0.56) {
-        this.governor = Math.max(0.55, this.governor - 0.12);
-        this.slowFrames = this.fastFrames = 0;
-        this.layout();
-      } else if (this.slowFrames > 150 && !this.thrifty) {
-        // fewer pixels did not help: this device is held back by the amount of geometry
-        this.thrifty = true;
-        if (this.grass) this.grass.mesh.visible = false;
-        if (this.catModel) this.catModel.thrift = 0.5;
-        this.slowFrames = this.fastFrames = 0;
-      } else if (this.fastFrames > 900 && this.governor < 1) {
-        this.governor = Math.min(1, this.governor + 0.12);
-        this.slowFrames = this.fastFrames = 0;
-        this.layout();
-      }
-      if (this.slowFrames + this.fastFrames > 1200) this.slowFrames = this.fastFrames = 0;
+      this.pace(dt);
       this.acc += dt;
       const c = this.input.poll();
       const pausePressed = c.pause;
