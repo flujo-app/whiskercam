@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Globals } from './materials';
+import { patient } from './patient';
 
 /**
  * Lawn grass: real blades, but only in a patch around the camera.
@@ -208,7 +209,7 @@ export class Grass {
   }
 
   async load(url: string, info: KindsInfo): Promise<void> {
-    const img = await new THREE.ImageLoader().loadAsync(url);
+    const img = await patient(() => new THREE.ImageLoader().loadAsync(url));
     const tex = new THREE.Texture(img);
     tex.flipY = false;
     tex.colorSpace = THREE.NoColorSpace;

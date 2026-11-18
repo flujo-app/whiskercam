@@ -3,6 +3,7 @@
  * synthesised sounds for the rest: paw steps, the collar bell, wind in the microphone, beeps.
  * Everything is heard from the collar camera: things further away are quieter and duller.
  */
+import { get } from './patient';
 
 const FILES: Record<string, string[]> = {
   meow: ['cat_meow_1', 'cat_meow_2', 'cat_meow_3', 'cat_meow_4'],
@@ -113,8 +114,7 @@ export class Audio {
     await Promise.all(
       names.map(async (name) => {
         try {
-          const res = await fetch(`${this.base}${name}.mp3`);
-          if (!res.ok) return;
+          const res = await get(`${this.base}${name}.mp3`, 3);
           this.buffers.set(name, await ctx.decodeAudioData(await res.arrayBuffer()));
         } catch {
           // a missing recording just means the built-in fallback is used

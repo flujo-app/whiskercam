@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { setProbe } from '../engine/materials';
 import { G, type Physics } from '../engine/physics';
+import { patient } from '../engine/patient';
 import { SHADOW_LAYER } from '../engine/shadows';
 import type { GroundSample, LoadedWorld } from '../engine/world';
 
@@ -46,7 +47,7 @@ export class Props {
     const models = new Map<string, THREE.Group>();
     await Promise.all(
       Object.entries(info.models).map(async ([key, m]) => {
-        const gltf = await loader.loadAsync(world.base + m.file);
+        const gltf = await patient(() => loader.loadAsync(world.base + m.file));
         plainNumbers(gltf.scene);
         gltf.scene.updateMatrixWorld(true);
         models.set(key, gltf.scene);

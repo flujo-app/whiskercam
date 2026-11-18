@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { patient } from './patient';
 
 /**
  * Loads the pictures that go onto surfaces and the baked light, with care for small devices and slow lines.
@@ -75,12 +76,10 @@ export class Pictures {
       near,
       job: async () => {
         let bmp: ImageBitmap | HTMLImageElement | null = null;
-        for (let attempt = 0; attempt < 2 && !bmp; attempt++) {
-          try {
-            bmp = await this.fetchPicture(url, maxSide, this.scale);
-          } catch {
-            bmp = null;
-          }
+        try {
+          bmp = await patient(() => this.fetchPicture(url, maxSide, this.scale));
+        } catch {
+          bmp = null;
         }
         if (!bmp) {
           this.failed.push(url);
@@ -136,7 +135,7 @@ export class Pictures {
       });
     }
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`${res.status} ${url}`);
+    if (!res.ok) throw Object.assign(new Error(`${res.status} ${url}`), { final: res.status === 404 });
     const blob = await res.blob();
     const plain: ImageBitmapOptions = { premultiplyAlpha: 'none', colorSpaceConversion: 'none' };
     let bmp = await createImageBitmap(blob, plain);

@@ -5,6 +5,7 @@ import { setProbe, type Globals, type Materials } from '../engine/materials';
 import { furFragment, furVertex } from '../engine/shaders/fur.glsl';
 import { SHADOW_LAYER } from '../engine/shadows';
 import type { GroundSample } from '../engine/world';
+import { patient } from '../engine/patient';
 import type { CatLook, CatVisual, Coat } from './cats';
 
 import { CatMoves, CH, FRONT, HIND, TAIL } from './catmoves';
@@ -63,10 +64,10 @@ export class CatModel {
   ) {}
 
   static async load(base: string, materials: Materials, coats: Coat[]): Promise<CatModel> {
-    const gltf = await new GLTFLoader().loadAsync(`${base}cat.glb`);
+    const gltf = await patient(() => new GLTFLoader().loadAsync(`${base}cat.glb`));
     const loader = new THREE.TextureLoader();
     const tex = async (file: string, srgb: boolean) => {
-      const t = await loader.loadAsync(base + file);
+      const t = await patient(() => loader.loadAsync(base + file));
       t.flipY = false;
       t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       t.wrapS = t.wrapT = THREE.RepeatWrapping;

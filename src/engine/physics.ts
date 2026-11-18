@@ -1,4 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
+import { get } from './patient';
 
 /** Collision layers (who is what, and what it bumps into). */
 export const G = { WORLD: 1, SOFT: 2, PROP: 4, PLAYER: 8, NPC: 16 } as const;
@@ -53,8 +54,8 @@ export class Physics {
     await RAPIER.init();
     const p = new Physics();
     const [index, blob] = await Promise.all([
-      fetch(`${base}collision.json`).then((r) => r.json() as Promise<CollisionIndex>),
-      fetch(`${base}collision.bin`).then((r) => r.arrayBuffer()),
+      get(`${base}collision.json`).then((r) => r.json() as Promise<CollisionIndex>),
+      get(`${base}collision.bin`).then((r) => r.arrayBuffer()),
     ]);
     const fixed = p.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     for (const key of ['solid', 'soft'] as const) {
