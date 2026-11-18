@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import type { Globals, Materials, ProbeRef } from './materials';
+import { FLAT_MIX, type Globals, type Materials, type ProbeRef } from './materials';
 import type { Physics } from './physics';
 import { fullscreenVertex } from './shaders/post.glsl';
 import type { Sky } from './sky';
-import type { LoadedWorld } from './world';
+import { isCarPart, type LoadedWorld } from './world';
 
 /**
  * Real reflections.
@@ -424,8 +424,11 @@ const vb = new THREE.Vector3();
 const vc = new THREE.Vector3();
 const vn = new THREE.Vector3();
 
-/** Sort the triangles of a mesh into groups; `pick` gets a triangle's middle and facing and returns a group (or -1). */
-function cut(mesh: THREE.Mesh, pick: (cx: number, cy: number, cz: number, nx: number, ny: number, nz: number) => number): Cut {
+/**
+ * Sort the triangles of a mesh into groups; `pick` gets a triangle's middle, its facing and the number of its
+ * first corner point, and returns a group (or -1).
+ */
+function cut(mesh: THREE.Mesh, pick: (cx: number, cy: number, cz: number, nx: number, ny: number, nz: number, corner: number) => number): Cut {
   const geo = mesh.geometry;
   const pos = geo.attributes.position;
   const index = geo.index;
@@ -442,7 +445,7 @@ function cut(mesh: THREE.Mesh, pick: (cx: number, cy: number, cz: number, nx: nu
     vc.fromBufferAttribute(pos, i2).applyMatrix4(m);
     vn.subVectors(vb, va).cross(vc.sub(va)).normalize();
     vc.add(va); // (vc was made relative to va for the cross product)
-    const k = pick((va.x + vb.x + vc.x) / 3, (va.y + vb.y + vc.y) / 3, (va.z + vb.z + vc.z) / 3, vn.x, vn.y, vn.z);
+    const k = pick((va.x + vb.x + vc.x) / 3, (va.y + vb.y + vc.y) / 3, (va.z + vb.z + vc.z) / 3, vn.x, vn.y, vn.z, i0);
     let list = rest;
     if (k >= 0) {
       list = groups.get(k) ?? [];
@@ -518,7 +521,13 @@ export function planReflections(
     });
   }
   const desc = (mesh: THREE.Mesh) => mats.describe((mesh.material as THREE.Material).name);
-  const isCarPart = (name: string) => /^(car_|veh_|glass_car|glass_lamp|chrome$|light_)/.test(name);
+  // A chunk's plain-coloured parts are one mesh (see mergeFlats in world.ts): what a triangle is made of is
+  // read from its corner points. Returns [metalness, roughness, part of a car?].
+  const mixed = (mesh: THREE.Mesh) => (mesh.material as THREE.Material).name === FLAT_MIX;
+  const made = (mesh: THREE.Mesh, corner: number): [number, number, boolean] => {
+    const extra = mesh.geometry.attributes.aExtra;
+    return [extra.getX(corner), mesh.geometry.attributes.aTint.getW(corner), extra.getY(corner) > 0.5];
+  };
 
   // ---- parked cars: how big each one is (from its painted body), then a probe in the middle of each
   type Car = HideBox & { probe: Probe | null; found: boolean };
@@ -582,10 +591,16 @@ export function planReflections(
     for (const mesh of meshes.slice()) {
       const name = (mesh.material as THREE.Material).name;
       const d = desc(mesh);
-      if (!d || !isCarPart(name)) continue;
-      const shiny = d.kind === 'paint' || d.kind === 'glass' || ((d.metal ?? 0) >= 0.6 && (d.rough ?? 1) <= 0.34);
+      const mix = mixed(mesh);
+      if (!d || !(mix || isCarPart(name))) continue;
+      const shiny = mix || d.kind === 'paint' || d.kind === 'glass' || ((d.metal ?? 0) >= 0.6 && (d.rough ?? 1) <= 0.34);
       if (!shiny) continue;
-      const c = cut(mesh, (cx, cy, cz) => {
+      const c = cut(mesh, (cx, cy, cz, _nx, _ny, _nz, corner) => {
+        if (mix) {
+          // chrome, mirrors, lamp bowls, polished wheels
+          const [metal, rough, onCar] = made(mesh, corner);
+          if (!onCar || metal < 0.59 || rough > 0.345) return -1;
+        }
         for (let k = 0; k < cars.length; k++) {
           const car = cars[k];
           if (car.probe && cy > car.y0 - 0.1 && cy < car.y1 && boxDistance(car, cx, cz) <= 0) return k;
@@ -721,9 +736,14 @@ export function planReflections(
     for (const mesh of meshes.slice()) {
       const name = (mesh.material as THREE.Material).name;
       const d = desc(mesh);
-      if (!d || d.kind !== 'flat' || isCarPart(name) || (d.metal ?? 0) < 0.8 || (d.rough ?? 1) > 0.42) continue;
-      const c = cut(mesh, (cx, cy, cz) => {
+      const mix = mixed(mesh);
+      if (!d || d.kind !== 'flat' || isCarPart(name) || (!mix && ((d.metal ?? 0) < 0.8 || (d.rough ?? 1) > 0.42))) continue;
+      const c = cut(mesh, (cx, cy, cz, _nx, _ny, _nz, corner) => {
         if (cy > 3.4) return -1;
+        if (mix) {
+          const [metal, rough, onCar] = made(mesh, corner);
+          if (onCar || metal < 0.79 || rough > 0.425) return -1;
+        }
         let best = -1;
         let bestD = 9;
         for (let k = 0; k < wallProbes.length; k++) {

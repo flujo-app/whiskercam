@@ -49,7 +49,8 @@ export class Recorder {
   private cardSince = 0;
   private cardDone: ((ok: boolean) => void) | null = null;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  /** lean: a phone records a smaller clip at 25 pictures a second, so that recording does not slow the game down */
+  constructor(private readonly canvas: HTMLCanvasElement, private readonly lean = false) {
     this.ctx = this.out.getContext('2d', { alpha: false });
   }
 
@@ -69,13 +70,13 @@ export class Recorder {
     const mimeType = types.find((t) => MediaRecorder.isTypeSupported(t));
     if (!mimeType) return;
     // upright 9:16 at a size the platforms like; no bigger than what is actually drawn
-    const tall = this.canvas.height >= 1500 ? 1920 : 1280;
+    const tall = this.lean ? 960 : this.canvas.height >= 1500 ? 1920 : 1280;
     this.out.height = tall;
     this.out.width = (tall * 9) / 16;
     try {
-      const stream = this.out.captureStream(30);
+      const stream = this.out.captureStream(this.lean ? 25 : 30);
       for (const track of audio?.getAudioTracks() ?? []) stream.addTrack(track);
-      this.rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: tall > 1300 ? 8_000_000 : 4_500_000, audioBitsPerSecond: 128_000 });
+      this.rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: tall > 1300 ? 8_000_000 : tall > 1000 ? 4_500_000 : 3_000_000, audioBitsPerSecond: 128_000 });
       this.ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
       this.rec.ondataavailable = (e) => {
         if (e.data.size > 0) this.chunks.push(e.data);
@@ -94,7 +95,7 @@ export class Recorder {
   frame(info: ClipFrame, now = performance.now()): void {
     const ctx = this.ctx;
     if (!ctx || !this.rec || this.rec.state !== 'recording') return;
-    if (now - this.lastDraw < 30) return;
+    if (now - this.lastDraw < (this.lean ? 38 : 30)) return;
     this.lastDraw = now;
     const W = this.out.width;
     const H = this.out.height;

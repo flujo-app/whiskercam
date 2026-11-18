@@ -29,6 +29,13 @@ attribute vec2 uv1;
   attribute vec4 color;
   varying vec4 vBaked;
 #endif
+#ifdef FLAT_MIX
+  // many plain-coloured materials drawn in one go: what each is made of comes with the corner points
+  attribute vec4 aTint;     // rgb = square root of the colour, a = roughness
+  attribute vec4 aExtra;    // x = metalness, y = 1 for a part of a parked car
+  varying vec4 vTint;
+  varying float vMetal;
+#endif
 
 uniform vec2 uUvScale;
 uniform vec4 uLmXform;      // LM_PLANAR: lm uv = world.xz * xy + zw
@@ -82,6 +89,10 @@ void main() {
   #endif
   #ifdef LM_VERTEX
     vBaked = color;
+  #endif
+  #ifdef FLAT_MIX
+    vTint = aTint;
+    vMetal = aExtra.x;
   #endif
   gl_Position = projectionMatrix * viewMatrix * wp;
   if (uHideBox.w > 0.5) {
@@ -161,6 +172,10 @@ uniform float uShadowOn;
 #endif
 #ifdef LM_VERTEX
   varying vec4 vBaked;
+#endif
+#ifdef FLAT_MIX
+  varying vec4 vTint;
+  varying float vMetal;
 #endif
 
 varying vec3 vWorldPos;
@@ -347,6 +362,11 @@ void main() {
     float ao = 1.0;
     float rough = clamp(uRough, 0.06, 1.0);
     float metal = uMetal;
+    #ifdef FLAT_MIX
+      albedo = vTint.rgb * vTint.rgb;
+      rough = clamp(vTint.a, 0.06, 1.0);
+      metal = vMetal;
+    #endif
     vec3 N = Ng;
   #endif
 

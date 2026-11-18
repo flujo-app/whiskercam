@@ -87,9 +87,16 @@ export class CatModel {
 
   /** how many fur layers a cat right in front of the camera gets */
   shells = 16;
+  /** phones: thin the fur out sooner with distance */
+  lean = false;
+  /** 1 = all the fur the distance calls for; less on a device that cannot keep up (applies to every cat at once) */
+  thrift = 1;
 
   make(coat: Coat, name: string): FurCat {
-    return new FurCat(cloneSkinned(this.template), this.coats.get(coat) ?? [...this.coats.values()][0], this.furMap, this.eyeMap, this.materials, name, this.shells);
+    const cat = new FurCat(cloneSkinned(this.template), this.coats.get(coat) ?? [...this.coats.values()][0], this.furMap, this.eyeMap, this.materials, name, this.shells);
+    cat.lean = this.lean;
+    cat.model = this;
+    return cat;
   }
 }
 
@@ -296,9 +303,16 @@ export class FurCat implements CatVisual {
     head.add(lines);
   }
 
+  lean = false;
+  /** the model this cat was made from (for settings that apply to every cat) */
+  model: CatModel | null = null;
+
   /** Fewer shells for cats far from the camera; none at all when too far to see fur. */
   setDetail(distance: number): void {
-    const n = Math.min(this.shellCount, distance < 2.5 ? this.shellCount : distance < 7 ? 12 : distance < 16 ? 8 : distance < 34 ? 5 : 3);
+    const far = this.lean
+      ? distance < 7 ? 6 : distance < 16 ? 4 : distance < 34 ? 2 : 1
+      : distance < 7 ? 12 : distance < 16 ? 8 : distance < 34 ? 5 : 3;
+    const n = Math.max(1, Math.round(Math.min(this.shellCount, distance < 2.5 ? this.shellCount : far) * (this.model?.thrift ?? 1)));
     this.shellGeo.instanceCount = n;
     this.fur.uniforms.uShells.value = n;
     this.root.visible = distance < 75;

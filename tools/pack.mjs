@@ -5,6 +5,8 @@
 // * surface pictures are resized and re-encoded (WebP)
 // * light maps are re-encoded (sun: lossless grey, bounce/sky light: high-quality lossy)
 // * geometry and the small JSON files are copied
+// * buildings, parked cars and tree trunks also get a simplified copy (*.lite.glb) for phones, which are held
+//   back by the number of triangles far more than by the number of pixels
 import fs from 'node:fs/promises';
 import fssync from 'node:fs';
 import path from 'node:path';
@@ -12,8 +14,8 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { NodeIO, PropertyType } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, meshopt, prune } from '@gltf-transform/functions';
-import { MeshoptEncoder } from 'meshoptimizer';
+import { dedup, meshopt, prune, simplify, weld } from '@gltf-transform/functions';
+import { MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -35,12 +37,17 @@ const HERO = new Set([
 ]);
 
 await MeshoptEncoder.ready;
+await MeshoptSimplifier.ready;
 const gltfIO = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
 
-/** Copy a model, squeezing its geometry (about a fifth of the size; the game unpacks it while loading). */
-async function packGlb(src, dst) {
+/**
+ * Copy a model, squeezing its geometry (about a fifth of the size; the game unpacks it while loading).
+ * lite: first take out the triangles that change the shape by no more than about a centimetre.
+ */
+async function packGlb(src, dst, lite = false) {
   const doc = await gltfIO.read(src);
   doc.setLogger({ debug() {}, info() {}, warn() {}, error: console.error });
+  if (lite) await doc.transform(weld({}), simplify({ simplifier: MeshoptSimplifier, ratio: 0.35, error: 0.001 }));
   await doc.transform(
     // materials are told apart by name only, so they must not be merged
     dedup({ propertyTypes: [PropertyType.ACCESSOR, PropertyType.MESH] }),
@@ -49,6 +56,8 @@ async function packGlb(src, dst) {
   );
   await gltfIO.write(dst, doc);
 }
+
+const liteName = (file) => file.replace(/\.glb$/, '.lite.glb');
 
 const newer = (src, dst) => force || !fssync.existsSync(dst) || fssync.statSync(src).mtimeMs > fssync.statSync(dst).mtimeMs;
 
@@ -148,6 +157,13 @@ async function main() {
       await packGlb(src, dst);
       made++;
     }
+    if (chunk.kind === 'struct') {
+      chunk.lite = liteName(chunk.file);
+      if (newer(src, path.join(OUT, chunk.lite))) {
+        await packGlb(src, path.join(OUT, chunk.lite), true);
+        made++;
+      }
+    }
   }
 
   // ---- one small light picture of the whole ground (left half: sky + bounce light, right half: sun)
@@ -195,12 +211,20 @@ async function main() {
   // ---- small plants drawn as copies
   if (world.scatter) {
     await fs.mkdir(path.join(OUT, 'scatter'), { recursive: true });
-    for (const model of Object.values(world.scatter)) {
+    for (const [key, model] of Object.entries(world.scatter)) {
       const src = path.join(SRC, model.file);
       const dst = path.join(OUT, model.file);
       if (newer(src, dst)) {
         await packGlb(src, dst);
         made++;
+      }
+      if (/^tree\|/.test(key)) {
+        // trunks and branches: 38,000 triangles a tree at full detail
+        model.lite = liteName(model.file);
+        if (newer(src, path.join(OUT, model.lite))) {
+          await packGlb(src, path.join(OUT, model.lite), true);
+          made++;
+        }
       }
     }
   }

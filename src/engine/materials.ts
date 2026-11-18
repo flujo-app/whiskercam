@@ -25,7 +25,12 @@ export interface MatDesc {
   grime?: number;
   /** glass you can see through: the share of light it lets pass (car windows, lamp covers) */
   clear?: number;
+  /** stands for many plain-coloured materials at once: colour and gloss come with the mesh (see mergeFlats) */
+  mix?: boolean;
 }
+
+/** The one material that draws all plain-coloured parts of a chunk in one go. */
+export const FLAT_MIX = 'flat_mix';
 
 /**
  * An all-round picture of one place, in which nearby shiny surfaces look up their reflection
@@ -105,6 +110,7 @@ export class Materials {
   ) {
     this.globals = globals ?? makeGlobals();
     this.pictures = pictures ?? new Pictures();
+    this.descs[FLAT_MIX] ??= { kind: 'flat', color: [1, 1, 1], rough: 1, metal: 1, mix: true };
   }
 
   /** Resolves when every picture requested so far has arrived. */
@@ -245,6 +251,7 @@ export class Materials {
       u.uMetal.value = d.metal ?? 0;
     }
     if (d.tint) (u.uColor.value as THREE.Color).setRGB(d.tint[0], d.tint[1], d.tint[2]);
+    if (d.mix) defines.FLAT_MIX = 1;
 
     if (reflect) {
       defines.PROBE = 1;

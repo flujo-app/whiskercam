@@ -71,6 +71,8 @@ export class Game {
   private governor = 1;
   private slowFrames = 0;
   private fastFrames = 0;
+  /** even the smallest picture came out too slow: the grass, half the fur and the far plants are left out as well */
+  thrifty = false;
   readonly recorder: Recorder;
   readonly audio = new Audio(`${import.meta.env.BASE_URL}audio/`);
   /** called once per drawn frame, after the world has been updated */
@@ -90,8 +92,9 @@ export class Game {
     this.post = new Post(renderer, this.rig);
     // phones: no extra samples per pixel (memory), the smoothing over time still runs
     this.post.msaa = opts.msaa ?? (opts.lean ? 0 : 4);
+    this.post.lean = !!opts.lean;
     this.input = new Input(canvas);
-    this.recorder = new Recorder(canvas);
+    this.recorder = new Recorder(canvas, !!opts.lean);
   }
 
   static async create(canvas: HTMLCanvasElement, opts: GameOptions): Promise<Game> {
@@ -119,6 +122,7 @@ export class Game {
     game.world = await loadWorld(opts.set, maxAniso, (done, total) => say(0.05 + (0.75 * done) / total, 'Unrolling the estate'), {
       pictureScale,
       parallel: opts.lean ? 3 : 8,
+      lite: opts.lean,
     });
     if (game.world.pictures.failed.length) console.warn('pictures that did not load:', game.world.pictures.failed);
     say(0.82, 'Checking the camera');
@@ -133,7 +137,7 @@ export class Game {
     }
     say(0.9, 'Sharpening claws');
     game.physics = await Physics.create(game.world.base);
-    game.shadows = new LiveShadows(game.world.materials.globals);
+    game.shadows = new LiveShadows(game.world.materials.globals, opts.lean ? 1024 : 2048);
     game.props = await Props.create(game.world, game.physics, game.scene);
     game.player = new Player(game.physics);
     const [sx, sy, sz] = game.world.info.spawn.pos;
@@ -142,7 +146,10 @@ export class Game {
     try {
       const coats: Coat[] = ['tabby', 'ginger', 'black', 'white', 'grey', 'tux'];
       const model = await CatModel.load(`${import.meta.env.BASE_URL}assets/cats/`, game.world.materials, coats);
-      if (opts.lean) model.shells = 10;
+      if (opts.lean) {
+        model.shells = 8;
+        model.lean = true;
+      }
       game.catModel = model;
       game.catFactory = (coat: Coat, name: string) => model.make(coat, name);
     } catch (err) {
@@ -166,7 +173,7 @@ export class Game {
         if (game.grass && !live) game.grass.mesh.visible = false;
       };
       refl.after = () => {
-        if (game.grass) game.grass.mesh.visible = true;
+        if (game.grass) game.grass.mesh.visible = !game.thrifty;
       };
       refl.prioritise(sx, sz);
       game.reflections = refl;
@@ -278,18 +285,37 @@ export class Game {
       h = window.innerHeight;
       w = Math.min(window.innerWidth, Math.round((h * 9) / 16));
       // a phone clip does not need more than this many lines; big screens just show it larger
-      dpr = Math.min(dpr, this.maxLines / h);
+      dpr = Math.min(dpr, ((this.opts.lean ? 0.85 : 1) * this.maxLines) / h);
     }
     const pw = Math.max(2, Math.round(w * dpr));
     const ph = Math.max(2, Math.round(h * dpr));
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.renderer.setSize(pw, ph, false);
-    this.post.setSize(pw, ph, this.opts.quality * this.governor);
+    // (the two views behind the fisheye picture hold twice its pixels at full quality; a phone draws them smaller)
+    this.post.setSize(pw, ph, this.opts.quality * this.governor * (this.opts.lean ? 0.75 : 1));
   }
 
   private reflectLevel = 0;
   private followed: Probe | null = null;
+  private readonly ahead = new THREE.Vector3();
+
+  /** Phones: a cat behind the lens is not drawn at all (its fur is thousands of triangles; nothing mirrors it there). */
+  private skipCatsBehind(): void {
+    const rig = this.rig.rig;
+    const f = this.ahead.set(0, 0, -1).applyQuaternion(rig.quaternion);
+    const check = (root: THREE.Object3D) => {
+      if (!root.visible) return;
+      const dx = root.position.x - rig.position.x;
+      const dy = root.position.y - rig.position.y;
+      const dz = root.position.z - rig.position.z;
+      const d = Math.hypot(dx, dy, dz);
+      // (the lens sees a little more than a half-sphere; a cat is half a metre long)
+      if (d > 1.5 && (dx * f.x + dy * f.y + dz * f.z) / d < -0.3) root.visible = false;
+    };
+    check(this.session.brother.visual.root);
+    for (const r of this.session.rivals) check(r.npc.visual.root);
+  }
 
   /** Keep the reflections near the cat up to date: the nearest car's picture, and the glass wall it is in front of. */
   private updateReflections(): void {
@@ -371,6 +397,7 @@ export class Game {
       cat.root.rotation.y = yaw;
       const look = this.session.playerLook;
       cat.setLight(this.world.groundLight.sample(p.x, p.z, this.lightSample));
+      cat.setDetail?.(0);
       if (cat.collarWorld) {
         // the furry cat: pose it, measure where its collar ended up, and hang that point exactly on the lens.
         // The chin and whiskers then sit in the same place in the picture whatever the body does.
@@ -385,11 +412,12 @@ export class Game {
         cat.update(look, dt);
       }
     }
-    this.grass?.update(this.rig.rig.position);
+    if (!this.thrifty) this.grass?.update(this.rig.rig.position);
     this.renderer.info.reset();
     this.rig.update();
+    if (this.opts.lean) this.skipCatsBehind();
     this.updateReflections();
-    this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z, this.opts.lean ? 27 : 38);
+    this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z, this.thrifty ? 16 : this.opts.lean ? 27 : 38);
     this.shadows.render(this.renderer, this.scene, this.focus);
     this.post.render(this.scene, dt);
   }
@@ -431,6 +459,12 @@ export class Game {
         this.governor = Math.max(0.55, this.governor - 0.12);
         this.slowFrames = this.fastFrames = 0;
         this.layout();
+      } else if (this.slowFrames > 150 && !this.thrifty) {
+        // fewer pixels did not help: this device is held back by the amount of geometry
+        this.thrifty = true;
+        if (this.grass) this.grass.mesh.visible = false;
+        if (this.catModel) this.catModel.thrift = 0.5;
+        this.slowFrames = this.fastFrames = 0;
       } else if (this.fastFrames > 900 && this.governor < 1) {
         this.governor = Math.min(1, this.governor + 0.12);
         this.slowFrames = this.fastFrames = 0;

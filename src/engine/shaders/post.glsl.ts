@@ -205,7 +205,8 @@ void main() {
     gl_FragColor = vec4(textureLod(uColor, vUv, 0.0).rgb, 1.0);
     return;
   }
-  const int N = 14;
+  // (TAPS = how many samples a streak is made of: fewer on phones)
+  const int N = TAPS;
   vec3 acc = vec3(0.0);
   for (int i = 0; i < N; i++) {
     float f = (float(i) + 0.5) / float(N);
