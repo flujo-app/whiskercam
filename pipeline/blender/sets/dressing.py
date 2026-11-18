@@ -78,7 +78,9 @@ class Dresser:
 
     # ---- street furniture
     def lamps(self) -> None:
-        spots = [(-30, -23.9, 0), (-8, -23.9, 0), (14, -23.9, 0), (34, -23.4, 20), (41.6, -8, 90), (41.6, 8, 90),
+        # (the two on the east side stand on the pavement at either end of the car port: they used to stand
+        # inside it, one of them inside a parked car, with their heads through the roof)
+        spots = [(-30, -23.9, 0), (-8, -23.9, 0), (14, -23.9, 0), (34, -23.4, 20), (39.6, -15.0, 90), (39.6, 15.0, 90),
                  (34, 23.4, 160), (12, 23.9, 180), (-12, 23.9, 180), (-34, 23.4, 200), (-41.6, 10, 270), (-41.6, -10, 270),
                  (16.2, 2.2, 0), (-17, 2.0, 90)]
         for i, (x, y, rot) in enumerate(spots):
