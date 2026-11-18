@@ -7,33 +7,50 @@ import { SHADOW_LAYER } from '../engine/shadows';
 import type { GroundSample } from '../engine/world';
 import type { CatLook, CatVisual, Coat } from './cats';
 
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
-const smoothstep = (a: number, b: number, x: number): number => {
-  const t = clamp((x - a) / (b - a), 0, 1);
-  return t * t * (3 - 2 * t);
-};
-const TAU = Math.PI * 2;
+import { CatMoves, CH, FRONT, HIND, TAIL } from './catmoves';
 
-/**
- * Which way "positive" turns each joint, as built by pipeline/blender/assets/cat.py.
- * All bones have their local X axis pointing to the cat's right, so every bend in the
- * side-view plane is a rotation about X; these signs make +angle mean "forwards / up / flex".
- */
-export /** The collar camera hangs this far below the neck bone and this far ahead of it (metres). */
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+
+/** The collar camera hangs this far below the neck bone and this far ahead of it (metres). */
 const COLLAR_DROP = 0.082;
 const COLLAR_AHEAD = 0.047;
 
-const JOINT_SIGN: Record<string, number> = {
-  // bones that point forwards (spine, neck, head): + tips the front end up
-  spine: 1, neck: 1, head: 1,
-  // bones that point backwards / down-back: + would tip them down, so lift = -1
-  tail: -1, jaw: -1,
-  // leg bones point down: + swings the far end forwards. Flexing a joint means:
-  scapula: 1, upperarm: 1, forearm: 1, wrist: -1, paw: -1,
-  thigh: 1, shin: -1, hock: 1, hindpaw: -1, ear: 1,
-};
-
 const SIDES = ['L', 'R'] as const;
+
+/** A bone and its rest turn. */
+interface Joint {
+  bone: THREE.Bone;
+  rest: THREE.Quaternion;
+}
+interface LegJoints {
+  scapula: Joint | null; upperarm: Joint | null; forearm: Joint | null; wrist: Joint | null; paw: Joint | null;
+  thigh: Joint | null; shin: Joint | null; hock: Joint | null; hindpaw: Joint | null;
+}
+interface Joints {
+  hips: Joint | null; spine1: Joint | null; spine2: Joint | null; chest: Joint | null; neck: Joint | null; head: Joint | null; jaw: Joint | null;
+  earL: Joint | null; earR: Joint | null; tail: (Joint | null)[]; legs: LegJoints[];
+}
+
+/** One leg's bones and what the reaching maths needs to know about them. */
+interface Limb {
+  /** 0 = the cat's left, 1 = its right */
+  side: 0 | 1;
+  upper: THREE.Bone;
+  lower: THREE.Bone;
+  end: THREE.Bone;
+  /** upper and lower bone lengths (metres) */
+  l1: number;
+  l2: number;
+  /** each bone's rest turn, relative to a frame with X = the cat's right and Y = along the bone */
+  offU: THREE.Quaternion;
+  offL: THREE.Quaternion;
+  /** the end bone's turn at rest, in the cat's own space */
+  endRest: THREE.Quaternion;
+  /** the end bone's own rest turn (relative to its parent), inverted */
+  endLocalInv: THREE.Quaternion;
+  /** +1 front legs (elbow behind), -1 hind legs (knee in front) */
+  bend: number;
+}
 
 /** The cat model, loaded once and copied for every cat on screen. */
 export class CatModel {
@@ -93,9 +110,31 @@ export class FurCat implements CatVisual {
   private readonly e = new THREE.Euler();
   private readonly lag = new THREE.Vector3();
   private readonly lastPos = new THREE.Vector3();
-  private t = Math.random() * 10;
-  private blink = 0;
   private whiskerMat: THREE.LineBasicMaterial | null = null;
+  /** the movement brain: turns the look into a pose */
+  private readonly moves = new CatMoves();
+  private readonly limbs: Limb[] = [];
+  private joints: Joints | null = null;
+  private headBone: THREE.Bone | null = null;
+  private readonly headRest = new THREE.Quaternion();
+  private readonly neckRest = new THREE.Vector3();
+  /** set once the game hangs its camera on this cat */
+  private carriesCamera = false;
+  // scratch space for the per-frame maths (nothing is allocated while the game runs)
+  private readonly v0 = new THREE.Vector3();
+  private readonly v1 = new THREE.Vector3();
+  private readonly v2 = new THREE.Vector3();
+  private readonly v3 = new THREE.Vector3();
+  private readonly v4 = new THREE.Vector3();
+  private readonly v5 = new THREE.Vector3();
+  private readonly v6 = new THREE.Vector3();
+  private readonly v7 = new THREE.Vector3();
+  private readonly q1 = new THREE.Quaternion();
+  private readonly q2 = new THREE.Quaternion();
+  private readonly q3 = new THREE.Quaternion();
+  private readonly q4 = new THREE.Quaternion();
+  private readonly m0 = new THREE.Matrix4();
+  private readonly e2 = new THREE.Euler();
 
   constructor(model: THREE.Object3D, coat: THREE.Texture, furMap: THREE.Texture, eyeMap: THREE.Texture | null, private readonly materials: Materials, name: string, shells = 16) {
     this.shellCount = shells;
@@ -106,9 +145,13 @@ export class FurCat implements CatVisual {
     model.traverse((o) => {
       const bone = o as THREE.Bone;
       if (bone.isBone) {
-        this.bones.set(bone.name, bone);
-        this.rest.set(bone.name, bone.quaternion.clone());
-        this.restPos.set(bone.name, bone.position.clone());
+        // the loader drops the dot from "paw.L"; keep both spellings so either finds the bone
+        const names = /^[a-z]+[LR]$/.test(bone.name) ? [bone.name, `${bone.name.slice(0, -1)}.${bone.name.slice(-1)}`] : [bone.name];
+        for (const n of names) {
+          this.bones.set(n, bone);
+          this.rest.set(n, bone.quaternion.clone());
+          this.restPos.set(n, bone.position.clone());
+        }
       }
       const mesh = o as THREE.SkinnedMesh;
       if (mesh.isSkinnedMesh) {
@@ -175,6 +218,8 @@ export class FurCat implements CatVisual {
     base.layers.set(SHADOW_LAYER);
 
     this.root.updateMatrixWorld(true);
+    this.measureRest();
+    this.joints = this.buildJoints();
     this.addWhiskers();
     const neck = this.bones.get('neck') ?? this.bones.get('chest');
     if (neck) {
@@ -188,6 +233,8 @@ export class FurCat implements CatVisual {
 
   /** Where the collar camera hangs right now (world space), after the pose has been applied. */
   collarWorld(out: THREE.Vector3): THREE.Vector3 {
+    // only the cat that carries the camera is asked this: from now on it keeps its head still in the picture
+    this.carriesCamera = true;
     if (!this.neck) return this.root.localToWorld(out.copy(this.collarAt));
     this.root.updateMatrixWorld(true);
     this.neck.getWorldPosition(out);
@@ -268,88 +315,147 @@ export class FurCat implements CatVisual {
     });
   }
 
-  private turn(name: string, x: number, y = 0, z = 0): void {
+  /** Turn a bone by (x, y, z) about its own axes, on top of its rest turn. */
+  private bend(j: Joint | null, x: number, y = 0, z = 0): void {
+    if (!j) return;
+    this.e.set(x, y, z, 'XYZ');
+    j.bone.quaternion.copy(j.rest).multiply(this.q.setFromEuler(this.e));
+  }
+
+  /** Look the bones up once, so posing them every frame needs no names. */
+  private buildJoints(): Joints | null {
+    const j = (name: string): Joint | null => {
+      const bone = this.bones.get(name);
+      const rest = this.rest.get(name);
+      return bone && rest ? { bone, rest } : null;
+    };
+    const legs = SIDES.map((s) => ({
+      scapula: j(`scapula.${s}`), upperarm: j(`upperarm.${s}`), forearm: j(`forearm.${s}`), wrist: j(`wrist.${s}`), paw: j(`paw.${s}`),
+      thigh: j(`thigh.${s}`), shin: j(`shin.${s}`), hock: j(`hock.${s}`), hindpaw: j(`hindpaw.${s}`),
+    }));
+    return {
+      hips: j('hips'), spine1: j('spine1'), spine2: j('spine2'), chest: j('chest'), neck: j('neck'), head: j('head'), jaw: j('jaw'),
+      earL: j('ear.L'), earR: j('ear.R'), tail: [1, 2, 3, 4, 5].map((i) => j(`tail${i}`)), legs,
+    };
+  }
+
+  private turn(name: string, x: number, y = 0, z = 0, order: THREE.EulerOrder = 'XYZ'): void {
     const bone = this.bones.get(name);
     const rest = this.rest.get(name);
     if (!bone || !rest) return;
-    this.e.set(x, y, z, 'XYZ');
+    this.e.set(x, y, z, order);
     bone.quaternion.copy(rest).multiply(this.q.setFromEuler(this.e));
   }
 
+  /** Measure the legs and head at rest (the model is still at the origin, so world = the cat's own space). */
+  private measureRest(): void {
+    const pos = (b: THREE.Object3D, out: THREE.Vector3) => out.setFromMatrixPosition(b.matrixWorld);
+    const right = new THREE.Vector3(1, 0, 0);
+    const offset = (bone: THREE.Bone, child: THREE.Bone): THREE.Quaternion => {
+      const y = pos(child, new THREE.Vector3()).sub(pos(bone, new THREE.Vector3())).normalize();
+      const x = right.clone().addScaledVector(y, -right.dot(y)).normalize();
+      const z = new THREE.Vector3().crossVectors(x, y);
+      const basis = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+      const world = bone.getWorldQuaternion(new THREE.Quaternion());
+      return basis.invert().multiply(world);
+    };
+    const get = (n: string) => this.bones.get(n);
+    for (const side of SIDES) {
+      for (const [u, l, e, bend] of [['upperarm', 'forearm', 'wrist', 1], ['thigh', 'shin', 'hock', -1]] as const) {
+        const upper = get(`${u}.${side}`);
+        const lower = get(`${l}.${side}`);
+        const end = get(`${e}.${side}`);
+        if (!upper || !lower || !end) continue;
+        const a = pos(upper, new THREE.Vector3());
+        const b = pos(lower, new THREE.Vector3());
+        const c = pos(end, new THREE.Vector3());
+        this.limbs.push({
+          side: side === 'L' ? 0 : 1,
+          upper,
+          lower,
+          end,
+          l1: a.distanceTo(b),
+          l2: b.distanceTo(c),
+          offU: offset(upper, lower),
+          offL: offset(lower, end),
+          endRest: end.getWorldQuaternion(new THREE.Quaternion()),
+          endLocalInv: end.quaternion.clone().invert(),
+          bend,
+        });
+      }
+    }
+    const head = get('head');
+    if (head) {
+      this.headBone = head;
+      head.getWorldQuaternion(this.headRest);
+    }
+    const neck = get('neck');
+    if (neck) pos(neck, this.neckRest);
+  }
+
   update(look: CatLook, dt: number): void {
-    this.t += dt;
-    const S = JOINT_SIGN;
-    const a = look.phase * TAU;
-    const v = look.speed;
-    const moving = look.stance === 'move' ? clamp(v / 1.0, 0, 1) : 0;
-    const run = clamp((v - 1) / 6.6, 0, 1);
-    const gallop = smoothstep(3.6, 4.8, v) * moving;
-    const lowAng = clamp(look.headLow / 0.17, -0.5, 0.9);
-    const sit = look.stance === 'sit' ? 1 : 0;
-    const low = look.stance === 'crouch' ? 1 : 0;
-    const fight = look.stance === 'fight' ? 1 : 0;
+    const m = this.moves;
+    m.carriesCamera = this.carriesCamera;
+    m.update(look, dt);
+    const P = m.pose;
 
-    // ---- spine: arches and stretches with every bound, sags when crouching, tips up to sit
-    const bound = Math.sin(a) * gallop;
-    const arch = bound * 0.2 + look.puff * 0.16 - low * 0.05 + look.flinch * 0.1;
-    this.turn('hips', S.spine * (sit * 0.62 - arch * 0.6 + low * 0.06 + fight * 0.1));
-    this.turn('spine1', S.spine * (-arch * 0.5 - sit * 0.1));
-    this.turn('spine2', S.spine * (arch * 0.4 - sit * 0.12));
-    this.turn('chest', S.spine * (arch * 0.7 - sit * 0.1 - fight * 0.05 - lowAng * 0.5));
-    const sway = Math.sin(a) * 0.05 * moving * (1 - gallop);
-    const nod = Math.sin(a * 2) * 0.04 * moving * (1 - gallop) + bound * 0.1;
-    // the head stays level whatever the body does; turning left / right is a twist about the bone's own up axis
-    this.turn('neck', S.neck * (-sit * 0.3 + nod - low * 0.2 + fight * 0.08 + look.flinch * 0.25 - lowAng * 0.35), 0, -look.headTurn * 0.5 - sway);
-    this.turn('head', S.head * (-sit * 0.25 + low * 0.25 + look.flinch * 0.12 - arch * 0.3 + lowAng * 0.7), 0, -look.headTurn * 0.6);
-    this.turn('jaw', S.jaw * (look.puff > 0.5 && fight ? 0.28 : 0));
-    const earBack = clamp(look.puff * 0.9 + look.flinch, 0, 1);
-    for (const ear of ['ear.L', 'earL']) this.turn(ear, -earBack * 0.6, 0, earBack * 0.4);
-    for (const ear of ['ear.R', 'earR']) this.turn(ear, -earBack * 0.6, 0, -earBack * 0.4);
-
-    // ---- tail: streams behind at speed, curls round when sitting, bottle-brush in a fight
-    for (let i = 1; i <= 5; i++) {
-      const wave = Math.sin(this.t * 2.1 - i * 0.6) * 0.1 * (1 - run);
-      const lift = (0.06 + run * 0.1 + look.puff * 0.3) * (i === 1 ? 1.4 : 0.6) - sit * (i === 1 ? 0.75 : 0.02);
-      this.turn(`tail${i}`, S.tail * (lift + Math.sin(a - i * 0.5) * 0.06 * gallop), 0, wave + sit * 0.42 + Math.sin(this.t * 0.9 + i) * 0.04 * sit);
-    }
-
-    // ---- legs
-    for (let s = 0; s < 2; s++) {
-      const side = SIDES[s];
-      const out = s === 0 ? -1 : 1;       // sideways direction for this leg (left leg swings out to the left)
-      const b = (base: string) => (this.bones.has(`${base}.${side}`) ? `${base}.${side}` : `${base}${side}`);
-      // front: trot = diagonals together, gallop = both fronts nearly together
-      const fPhase = a + (s === 0 ? 0 : Math.PI) * (1 - gallop) + (s === 0 ? 0 : 0.6) * gallop;
-      const fSwing = Math.sin(fPhase) * (0.3 + 0.2 * run + 0.08 * gallop) * moving;
-      const fLift = Math.max(0, Math.cos(fPhase)) * moving;
-      const raised = s === 0 ? look.pawLeft : look.pawRight;
-      // sitting tips the chest up; the front legs swing back under it so the paws stay planted
-      this.turn(b('scapula'), S.scapula * (fSwing * 0.3 + raised * 0.2 - sit * 0.22));
-      this.turn(b('upperarm'), S.upperarm * (fSwing * 0.9 + raised * 1.1 - sit * 0.5 + low * 0.45 + fight * 0.06), 0, out * raised * 0.3);
-      this.turn(b('forearm'), S.forearm * (fLift * (0.45 + 0.45 * run) + raised * 0.55 - low * 0.95 + sit * 0.12));
-      this.turn(b('wrist'), S.wrist * (fLift * 0.7 - raised * 0.5 - low * 0.4));
-      this.turn(b('paw'), S.paw * (fLift * 0.4 - raised * 0.3));
-      // hind: opposite the fronts in a gallop, diagonal partner in a trot
-      const hPhase = a + (s === 0 ? Math.PI : 0) * (1 - gallop) + (Math.PI + (s === 0 ? 0 : 0.5)) * gallop;
-      const hSwing = Math.sin(hPhase) * (0.28 + 0.26 * run + 0.32 * gallop) * moving;
-      const hLift = Math.max(0, Math.cos(hPhase)) * moving;
-      this.turn(b('thigh'), S.thigh * (hSwing * 0.9 + sit * 0.5 + low * 0.5 + fight * 0.2), 0, out * sit * 0.22);
-      this.turn(b('shin'), S.shin * (hLift * (0.5 + 0.4 * run) + sit * 1.25 + low * 0.9 + fight * 0.3));
-      this.turn(b('hock'), S.hock * (hLift * 0.6 + sit * 1.1 + low * 0.5 + fight * 0.2));
-      this.turn(b('hindpaw'), S.hindpaw * (hLift * 0.4));
-    }
-
-    // ---- whole body: bob with the stride, sink when sitting or ducking
+    // ---- whole body: moved and tipped about the ground point under the hips
     const root = this.bones.get('root');
     const rp = this.restPos.get('root');
+    this.root.children[0].position.y = 0;
     if (root && rp) {
-      const bob = gallop * Math.abs(Math.sin(a)) * 0.022 + (1 - gallop) * Math.sin(a * 2) * 0.004 * moving;
-      root.position.set(rp.x, rp.y, rp.z);
-      this.root.children[0].position.y = bob - sit * 0.145 - low * 0.058 + look.puff * 0.012;
+      root.position.set(rp.x + P[CH.bodyX], rp.y + P[CH.bodyY], rp.z - P[CH.bodyF]);
+      // the root bone points forwards: X = right, Y = forwards, Z = up. Turn first, then tip, then roll.
+      this.turn('root', P[CH.bodyPitch], P[CH.bodyRoll], P[CH.bodyYaw], 'ZXY');
+    }
+    const J = this.joints;
+    if (J) {
+      this.bend(J.hips, P[CH.hipsB], P[CH.hipsT], P[CH.hipsS]);
+      this.bend(J.spine1, P[CH.sp1B], P[CH.sp1T], P[CH.sp1S]);
+      this.bend(J.spine2, P[CH.sp2B], P[CH.sp2T], P[CH.sp2S]);
+      this.bend(J.chest, P[CH.chestB], P[CH.chestT], P[CH.chestS]);
+      this.bend(J.neck, P[CH.neckB], P[CH.neckT], P[CH.neckS]);
+      this.bend(J.head, P[CH.headB], P[CH.headT], P[CH.headS]);
+      this.bend(J.jaw, P[CH.jaw]);
+      this.bend(J.earL, -P[CH.earLBack], P[CH.earLTurn], P[CH.earLOut]);
+      this.bend(J.earR, -P[CH.earRBack], -P[CH.earRTurn], -P[CH.earROut]);
+      for (let i = 0; i < 5; i++) this.bend(J.tail[i], P[TAIL.lift[i]], 0, P[TAIL.side[i]]);
+      for (let s = 0; s < 2; s++) {
+        const F = FRONT[s];
+        const H = HIND[s];
+        const j = J.legs[s];
+        this.bend(j.scapula, P[F.scap], 0, P[F.scapOut]);
+        this.bend(j.upperarm, P[F.upper], 0, P[F.upperOut]);
+        this.bend(j.forearm, P[F.fore]);
+        this.bend(j.wrist, P[F.wrist]);
+        this.bend(j.paw, P[F.paw]);
+        this.bend(j.thigh, P[H.thigh], 0, P[H.thighOut]);
+        this.bend(j.shin, P[H.shin]);
+        this.bend(j.hock, P[H.hock]);
+        this.bend(j.hindpaw, P[H.paw]);
+      }
+    }
+
+    // far away nobody sees the paws: skip the reaching maths
+    if (this.root.visible && this.limbs.length) {
+      this.root.updateMatrixWorld(true);
+      const still = clamp(Math.min(P[FRONT[0].ik], P[FRONT[1].ik]), 0, 1);
+      if (this.carriesCamera && root && rp && still > 0.01) {
+        // the camera hangs from this neck: keep the neck where the body offset alone would put it, so that
+        // tipping the body back or forwards moves the hind end and the paws stay on the ground
+        const n = this.neck ?? root;
+        const at = this.root.worldToLocal(this.v0.setFromMatrixPosition(n.matrixWorld));
+        root.position.x += (this.neckRest.x + P[CH.bodyX] - at.x) * still;
+        root.position.y += (this.neckRest.y + P[CH.bodyY] - at.y) * still;
+        root.position.z += (this.neckRest.z - P[CH.bodyF] - at.z) * still;
+        this.root.updateMatrixWorld(true);
+      }
+      this.aimHead(P);
+      for (let i = 0; i < this.limbs.length; i++) this.reach(this.limbs[i], P);
     }
 
     // ---- fur: stands on end when scared, trails behind when running
-    this.fur.uniforms.uPuff.value = look.puff;
+    this.fur.uniforms.uPuff.value = look.puff * m.puffScale;
     this.root.getWorldPosition(this.q0);
     if (dt > 0) {
       const vx = (this.q0.x - this.lastPos.x) / dt;
@@ -357,7 +463,87 @@ export class FurCat implements CatVisual {
       this.lag.set(clamp(-vx * 0.045, -0.5, 0.5), -0.28, clamp(-vz * 0.045, -0.5, 0.5));
     }
     this.lastPos.copy(this.q0);
-    this.blink = (this.blink + dt) % 4.3;
+  }
+
+  /** Point the head where the pose wants it in the cat's own space, whatever the neck and body are doing. */
+  private aimHead(P: Float32Array): void {
+    const head = this.headBone;
+    const w = P[CH.gaze];
+    if (!head || !head.parent || w < 0.001) return;
+    // cat space: yaw about up (+ = left), pitch about right (+ = nose up), roll about forwards (+ = top to the right)
+    this.e2.set(P[CH.headP], P[CH.headY], -P[CH.headR], 'YXZ');
+    const want = this.q1.copy(this.root.quaternion).multiply(this.q2.setFromEuler(this.e2)).multiply(this.headRest);
+    head.parent.matrixWorld.decompose(this.v0, this.q3, this.v1);
+    const local = this.q3.invert().multiply(want);
+    head.quaternion.slerp(local, clamp(w, 0, 1));
+  }
+
+  /**
+   * Two-bone reach: put the leg's end joint (front wrist, hind ankle) on the pose's target, bending the
+   * middle joint towards the pose's pole, then set the foot's angle to the ground. Blended with the
+   * joint angles already on the bones by the pose's `ik` weight.
+   */
+  private reach(limb: Limb, P: Float32Array): void {
+    const front = limb.bend > 0;
+    const si = limb.side;
+    const w = clamp(front ? P[FRONT[si].ik] : P[HIND[si].ik], 0, 1);
+    if (w < 0.001) return;
+    const sx = si === 0 ? -1 : 1;
+    const { upper, lower, end, l1, l2 } = limb;
+    const rootQ = this.root.quaternion;
+    // shoulder / hip, target and pole, all in world space
+    const S = this.v0.setFromMatrixPosition(upper.matrixWorld);
+    const T = this.v1;
+    const pole = this.v2;
+    if (front) {
+      const F = FRONT[si];
+      this.root.localToWorld(T.set(P[F.x], P[F.y], -P[F.f]));
+      pole.set(P[F.px], P[F.py], -P[F.pf]).applyQuaternion(rootQ);
+    } else {
+      const H = HIND[si];
+      this.root.localToWorld(T.set(P[H.x], P[H.y], -P[H.f]));
+      pole.set(sx * P[H.knee], 0, -1).applyQuaternion(rootQ);
+    }
+    const d = this.v3.subVectors(T, S);
+    let dist = d.length();
+    if (dist < 1e-5) return;
+    d.divideScalar(dist);
+    dist = clamp(dist, Math.abs(l1 - l2) + 0.004, (l1 + l2) * 0.997);
+    // the pole, made square to the reach direction
+    pole.addScaledVector(d, -pole.dot(d));
+    if (pole.lengthSq() < 1e-8) {
+      pole.set(0, 0, front ? 1 : -1).applyQuaternion(rootQ);
+      pole.addScaledVector(d, -pole.dot(d));
+    }
+    pole.normalize();
+    const a = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist);
+    const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+    // both bones bend about the same axis, square to the plane of the leg
+    const n = this.v5.crossVectors(pole, d).normalize().multiplyScalar(limb.bend);
+    // upper bone: towards the elbow / knee
+    const yU = this.v4.copy(d).multiplyScalar(a).addScaledVector(pole, h).normalize();
+    this.m0.makeBasis(n, yU, this.v6.crossVectors(n, yU));
+    const wantU = this.q1.setFromRotationMatrix(this.m0).multiply(limb.offU);
+    upper.parent!.matrixWorld.decompose(this.v6, this.q2, this.v7);
+    upper.quaternion.slerp(this.q3.copy(this.q2).invert().multiply(wantU), w);
+    const upperQ = this.q2.multiply(upper.quaternion); // the upper bone's world turn now
+    // lower bone: from the elbow / knee on to the target
+    const yL = this.v4.copy(d).multiplyScalar(dist - a).addScaledVector(pole, -h).normalize();
+    this.m0.makeBasis(n, yL, this.v6.crossVectors(n, yL));
+    const wantL = this.q1.setFromRotationMatrix(this.m0).multiply(limb.offL);
+    lower.quaternion.slerp(this.q3.copy(upperQ).invert().multiply(wantL), w);
+    const lowerQ = upperQ.multiply(lower.quaternion); // the lower bone's world turn now
+    // the foot: keeps its own angle to the ground (planted), turned with the stance
+    const plant = clamp(front ? P[FRONT[si].plant] : P[HIND[si].plant], 0, 1) * w;
+    if (plant > 0.001) {
+      const tip = front ? 0 : P[HIND[si].hockAbs];
+      this.e2.set(tip, P[CH.bodyYaw], 0, 'YXZ');
+      const wantE = this.q1.copy(rootQ).multiply(this.q4.setFromEuler(this.e2)).multiply(limb.endRest);
+      // on top of that, whatever bend the pose gave the foot bone
+      const extra = this.q4.copy(end.quaternion).premultiply(limb.endLocalInv);
+      const local = this.q3.copy(lowerQ).invert().multiply(wantE).multiply(extra);
+      end.quaternion.slerp(local, plant);
+    }
   }
 
   private readonly q0 = new THREE.Vector3();
