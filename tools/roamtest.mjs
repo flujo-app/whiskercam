@@ -1,6 +1,6 @@
 // Movement tests: send the cat at the things that used to trip it up and check that it gets past.
 //
-//   node tools/roamtest.mjs [set] [--only kerb|steps|pipe|car|tree|fence|hedge|jump|skin] [--verbose] [--extra '[[kind,x,z,nx,nz]]']
+//   node tools/roamtest.mjs [set] [--only kerb|steps|pipe|car|onto|tree|fence|hedge|jump|skin] [--verbose] [--extra '[[kind,x,z,nx,nz]]']
 //
 // The estate lists its own awkward spots (world.json "poi": every few metres of kerb, every entrance
 // stair, every drainpipe, every parked car). For each one the cat is put down nearby and walked at it
@@ -137,11 +137,11 @@ const report = await page.evaluate(({ only, extra }) => {
       put(open[0], open[1], 90);
       const hold = run({ jump: true, jumpHeld: true }, 1.4);
       // a pounce: get up to speed, press, and measure the leap itself (height, length, time in the air)
-      const pounce = (c) => {
+      const pounce = (c, held = false) => {
         put(open[0], open[1], 90);
         run(c, 1.3);
         const m = { y0: p.y, top: 0, from: null, len: 0, air: 0 };
-        run({ ...c, jump: true, jumpHeld: true }, 1.0, () => {
+        run({ ...c, jump: true, jumpHeld: held }, 1.0, () => {
           if (p.airborne) {
             m.from ??= [p.x, p.z];
             m.air++;
@@ -152,19 +152,21 @@ const report = await page.evaluate(({ only, extra }) => {
         return m;
       };
       const trot = pounce({ move: 1 });
+      const trotHeld = pounce({ move: 1 }, true);
       const sprint = pounce({ move: 1, sprint: true });
       put(open[0], open[1], 90);
       const leap = run({ move: 1, sprint: true }, 1.2);
       const h = (v) => v.toFixed(2);
-      note('jump', tap.top - tap.y0 > 0.2 && tap.top - tap.y0 < 0.5, `a tap from a standstill jumps ${h(tap.top - tap.y0)} m (want 0.2 to 0.5)`);
-      note('jump', hold.top - hold.y0 > 0.7 && hold.top - hold.y0 < 0.95, `holding from a standstill jumps ${h(hold.top - hold.y0)} m (want 0.7 to 0.95)`);
-      note('jump', trot.top > 0.3 && trot.top < 0.55, `a pounce at a trot rises ${h(trot.top)} m (want 0.3 to 0.55)`);
-      note('jump', trot.len > 1.5 && trot.len < 2.5, `a pounce at a trot carries ${h(trot.len)} m (want 1.5 to 2.5)`);
-      note('jump', trot.air / 60 > 0.28 && trot.air / 60 < 0.5, `a pounce at a trot is ${h(trot.air / 60)} s in the air (want 0.28 to 0.5)`);
-      note('jump', sprint.top < 0.55, `a pounce at a sprint rises ${h(sprint.top)} m (want under 0.55)`);
-      note('jump', sprint.len > 2.6 && sprint.len < 3.9, `a pounce at a sprint carries ${h(sprint.len)} m (want 2.6 to 3.9)`);
+      note('jump', tap.top - tap.y0 > 0.4 && tap.top - tap.y0 < 0.62, `a tap from a standstill jumps ${h(tap.top - tap.y0)} m (want 0.4 to 0.62)`);
+      note('jump', hold.top - hold.y0 > 0.75 && hold.top - hold.y0 < 0.98, `holding from a standstill jumps ${h(hold.top - hold.y0)} m (want 0.75 to 0.98)`);
+      note('jump', trot.top > 0.4 && trot.top < 0.62, `a pounce at a trot rises ${h(trot.top)} m (want 0.4 to 0.62)`);
+      note('jump', trot.len > 1.6 && trot.len < 2.6, `a pounce at a trot carries ${h(trot.len)} m (want 1.6 to 2.6)`);
+      note('jump', trot.air / 60 > 0.3 && trot.air / 60 < 0.5, `a pounce at a trot is ${h(trot.air / 60)} s in the air (want 0.3 to 0.5)`);
+      note('jump', trotHeld.top > 0.75 && trotHeld.top < 0.98, `a held leap at a trot rises ${h(trotHeld.top)} m (want 0.75 to 0.98)`);
+      note('jump', sprint.top < 0.62, `a pounce at a sprint rises ${h(sprint.top)} m (want under 0.62)`);
+      note('jump', sprint.len > 2.8 && sprint.len < 4.2, `a pounce at a sprint carries ${h(sprint.len)} m (want 2.8 to 4.2)`);
       note('jump', leap.jerk < 0.03, `sprinting on flat ground moves the lens ${(leap.jerk * 100).toFixed(1)} cm in one step`);
-      kinds.jump.heights = { tap: +h(tap.top - tap.y0), hold: +h(hold.top - hold.y0), pounce: +h(trot.top), pounceLength: +h(trot.len), sprintPounceLength: +h(sprint.len) };
+      kinds.jump.heights = { tap: +h(tap.top - tap.y0), hold: +h(hold.top - hold.y0), pounce: +h(trot.top), pounceLength: +h(trot.len), heldLeap: +h(trotHeld.top), sprintPounceLength: +h(sprint.len) };
     }
   }
 
@@ -256,6 +258,113 @@ const report = await page.evaluate(({ only, extra }) => {
     }
   }
 
+  // ---- jumping onto things, the way a player tries it: from a standstill, at a trot and at a sprint, the
+  // button tapped or held, pressed right at the thing or three metres before it, straight on or at a slant.
+  // The things are found by looking: every face on the estate with a level top 0.35 to 1.7 m up and room
+  // to stand on it (bonnets, boots and roofs of cars, walls, landings, bins, benches).
+  if (want('onto')) {
+    const E = g.world.info.estate ?? { x0: -40, z0: -40, w: 80, h: 80 };
+    const targets = [];
+    const seen = new Set();
+    for (let x = E.x0 + 2; x < E.x0 + E.w - 2; x += 2.5) {
+      for (let z = E.z0 + 2; z < E.z0 + E.h - 2; z += 2.5) {
+        const gr = ph.groundBelow(x, 3, z, 6);
+        if (!gr || gr.ny < 0.9 || gr.y > 0.3 || gr.y < -0.1 || !ph.freeAt(x, gr.y + 0.1, z, 0.085)) continue;
+        // not inside a building (they have no floor, only the slab they stand on)
+        if (ph.rayDistance(x, gr.y + 0.3, z, 0, 1, 0, 40) < 40) continue;
+        for (let a = 0; a < 8; a++) {
+          const dx = Math.sin(a * 45 * DEG);
+          const dz = -Math.cos(a * 45 * DEG);
+          const hit = ph.rayHit(x, gr.y + 0.3, z, dx, 0, dz, 5);
+          if (!hit || Math.abs(hit.ny) > 0.5 || hit.surface === 'wood' || hit.toi < 1.2) continue;
+          const nl = Math.hypot(hit.nx, hit.nz) || 1;
+          if (-(hit.nx * dx + hit.nz * dz) / nl < 0.75) continue; // not square enough to the face
+          // as wide as a cat at least (a bicycle or a railing is not somewhere to land)
+          const wide = [-0.09, 0.09].every((o) => Math.abs(ph.rayDistance(x - dz * o, gr.y + 0.3, z + dx * o, dx, 0, dz, 5) - hit.toi) < 0.15);
+          if (!wide) continue;
+          let top = null;
+          for (const more of [0.12, 0.3, 0.55]) {
+            const px = x + dx * (hit.toi + more);
+            const pz = z + dz * (hit.toi + more);
+            const t = ph.groundBelow(px, gr.y + 2.3, pz, 2.2);
+            if (t && t.ny > 0.8 && t.surface !== 'hedge' && ph.freeAt(px, t.y + 0.1, pz, 0.085) && !ph.insideSolid(px, t.y + 0.03, pz)) {
+              top = { y: t.y, px, pz };
+              break;
+            }
+          }
+          if (!top) continue;
+          const rise = top.y - gr.y;
+          if (rise < 0.35 || rise > 1.7) continue;
+          const key = `${Math.round(top.px)},${Math.round(top.pz)},${Math.round(rise * 4)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (ph.rayDistance(x, gr.y + 0.12, z, dx, 0, dz, hit.toi - 0.05) < hit.toi - 0.06) continue; // the run-up must be open
+          targets.push({ fx: x + dx * hit.toi, fz: z + dz * hit.toi, dx, dz, rise, y0: gr.y, room: hit.toi });
+        }
+      }
+    }
+    const tryOne = (t, mode, d, button, slant) => {
+      const [dx, dz] = rot(t.dx, t.dz, slant);
+      const far = d + (mode === 'stand' ? 0 : mode === 'trot' ? 1.6 : 3.2);
+      if (far > t.room - (slant ? 0.2 : 0)) return null;
+      const sx = t.fx - dx * far;
+      const sz = t.fz - dz * far;
+      if (!put(sx, sz, heading(dx, dz)) || ph.rayDistance(sx, t.y0 + 0.12, sz, dx, 0, dz, far - 0.1) < far - 0.11) return null;
+      const y0 = p.y;
+      const c = { ...base, move: 1, sprint: mode === 'sprint' };
+      let pressAt = -1;
+      let presses = 0;
+      let top = y0;
+      let near = 1;
+      for (let i = 0; i < 270; i++) {
+        const away = (t.fx - p.x) * dx + (t.fz - p.z) * dz;
+        if (pressAt < 0 && (mode === 'stand' || away <= d)) {
+          c.jump = true;
+          pressAt = i;
+          presses = 1;
+        }
+        c.jumpHeld = pressAt >= 0 && button === 'hold' && i - pressAt < 36;
+        g.update(c);
+        c.jump = false;
+        top = Math.max(top, p.y);
+        near = Math.min(near, clearance());
+        if (pressAt < 0) continue;
+        const down = !p.airborne && !p.mantling && !p.climbing;
+        // on top of it, or at least up on the thing (the bonnet of the car whose roof was the aim)
+        if (down && p.y - y0 > Math.min(t.rise - 0.12, 0.55)) return { ok: true, top: top - y0, near };
+        // came down short of it: a player presses again, once
+        if (down && presses < 2 && i - pressAt > 20 && p.y - y0 < 0.2) {
+          c.jump = true;
+          presses = 2;
+          pressAt = i;
+        }
+        if (i - pressAt > 150) break;
+      }
+      return { ok: false, top: top - y0, near };
+    };
+    const tally = {};
+    for (const t of targets) {
+      for (const mode of ['stand', 'trot', 'sprint']) {
+        for (const d of [0.35, 0.7, 1.1, 1.5, 2.0, 2.6, 3.3]) {
+          for (const button of ['tap', 'hold']) {
+            for (const slant of [0, 25]) {
+              const r = tryOne(t, mode, d, button, slant);
+              if (!r) continue;
+              const k = (tally[`${mode}, ${button}`] ??= { n: 0, ok: 0 });
+              k.n++;
+              if (r.ok) k.ok++;
+              note('onto', r.ok && r.near > 0.03, `thing ${t.rise.toFixed(2)} m high at ${t.fx.toFixed(1)}, ${t.fz.toFixed(1)}, ${mode}, ${button}, pressed ${d} m before it${slant ? ', at a slant' : ''}: got ${r.top.toFixed(2)} m up, lens came within ${(r.near * 100).toFixed(1)} cm`);
+            }
+          }
+        }
+      }
+    }
+    if (kinds.onto) {
+      kinds.onto.heights = Object.fromEntries(Object.entries(tally).map(([k, v]) => [k, `${Math.round((v.ok / v.n) * 100)}% of ${v.n}`]));
+      kinds.onto.things = targets.length;
+    }
+  }
+
   // ---- parked cars: jump on from the front, the back and the side; crawl underneath
   if (want('car')) {
     for (const [kind, x, z, nx, nz] of pois) {
@@ -334,7 +443,7 @@ const report = await page.evaluate(({ only, extra }) => {
           note('tree', clung && top > perch - 0.25 && !p.climbing && up.near > 0.03, `${where}, ${how}: ${clung ? 'got a grip' : 'never got a grip'}, ended ${top.toFixed(2)} m up (fork at ${perch} m), lens came within ${(up.near * 100).toFixed(1)} cm`);
           if (top > perch - 0.25 && how === 'walking') {
             // jump off, and stand still once down (or it runs on into the next fence and climbs that)
-            const off2 = run({ move: 1, sprint: true, jump: true, jumpHeld: true }, 2.5, (i, held) => {
+            const off2 = run({ move: 1, jump: true, jumpHeld: true }, 2.5, (i, held) => {
               if (i > 10 && !p.airborne) held.move = 0;
             });
             closest(off2, where);
@@ -445,7 +554,7 @@ const report = await page.evaluate(({ only, extra }) => {
 
 // A handful of awkward corners out of thousands of approaches is expected (a probe that runs into a parked
 // car on its way to a kerb, say). The run as a whole fails when a kind of obstacle fails too often.
-const NEED = { jump: 1, kerb: 0.985, steps: 0.9, pipe: 0.95, car: 0.9, tree: 0.9, fence: 0.95, hedge: 0.95, skin: 0.9 };
+const NEED = { jump: 1, kerb: 0.985, steps: 0.9, pipe: 0.95, car: 0.9, onto: 0.95, tree: 0.9, fence: 0.95, hedge: 0.95, skin: 0.9 };
 let failed = 0;
 for (const [kind, k] of Object.entries(report.kinds)) {
   const rate = (k.tried - k.failed) / Math.max(1, k.tried);
