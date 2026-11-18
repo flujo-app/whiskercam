@@ -234,6 +234,17 @@ body {
   background: var(--accent);
 }
 
+.clip-note {
+  font-size: calc(var(--u) * 1.65);
+  line-height: 1.4;
+  color: var(--dim);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .duel-help {
   text-align: center;
   font-size: calc(var(--u) * 1.5);

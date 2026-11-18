@@ -46,6 +46,8 @@ export interface Popup {
 export interface Comment {
   who: string;
   text: string;
+  /** when it was said (seconds on the score's own clock) */
+  t: number;
 }
 
 const NAMES = [
@@ -90,6 +92,8 @@ export class Score {
   readonly counts: Partial<Record<Deed, number>> = {};
   readonly popups: Popup[] = [];
   readonly comments: Comment[] = [];
+  /** the last few things that earned views, with the time, for the recorded clip */
+  readonly feed: { text: string; views: number; t: number }[] = [];
   /** the three best moments, for the clip title */
   readonly highlights: { text: string; views: number }[] = [];
   private readonly recent = new Map<Deed, number>();
@@ -98,13 +102,18 @@ export class Score {
 
   constructor(private readonly rand: () => number = Math.random) {}
 
+  /** seconds this score has been running */
+  get clock(): number {
+    return this.time;
+  }
+
   private pick<T>(list: T[]): T {
     return list[Math.floor(this.rand() * list.length) % list.length];
   }
 
   say(topic: string): void {
     const pool = LINES[topic] ?? LINES.idle;
-    this.comments.push({ who: this.pick(NAMES), text: this.pick(pool) });
+    this.comments.push({ who: this.pick(NAMES), text: this.pick(pool), t: this.time });
     if (this.comments.length > 40) this.comments.shift();
   }
 
@@ -122,6 +131,8 @@ export class Score {
     if (label) {
       const big = gain >= 4000;
       this.popups.push({ text: label, views: gain, big });
+      this.feed.push({ text: label, views: gain, t: this.time });
+      if (this.feed.length > 6) this.feed.shift();
       this.highlights.push({ text: label, views: gain });
       this.highlights.sort((a, b) => b.views - a.views);
       this.highlights.length = Math.min(this.highlights.length, 3);

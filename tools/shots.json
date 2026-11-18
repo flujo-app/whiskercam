@@ -177,5 +177,82 @@
    ],
    "ui": true
   }
+ ],
+ "aa": [
+  {
+   "name": "run",
+   "cat": {
+    "x": -30,
+    "z": 18.2,
+    "heading": 90
+   },
+   "sim": [
+    {
+     "move": 1,
+     "sprint": true,
+     "t": 3
+    }
+   ]
+  },
+  {
+   "name": "run2",
+   "cat": {
+    "x": -30,
+    "z": 18.2,
+    "heading": 90
+   },
+   "sim": [
+    {
+     "move": 1,
+     "sprint": true,
+     "t": 3.07
+    }
+   ]
+  },
+  {
+   "name": "trot",
+   "cat": {
+    "x": 6,
+    "z": 18,
+    "heading": 265
+   },
+   "sim": [
+    {
+     "move": 1,
+     "t": 1.5
+    }
+   ]
+  },
+  {
+   "name": "turn",
+   "cat": {
+    "x": 6,
+    "z": 18,
+    "heading": 265
+   },
+   "sim": [
+    {
+     "move": 1,
+     "turn": 1,
+     "t": 0.9
+    }
+   ]
+  },
+  {
+   "name": "still",
+   "cat": {
+    "x": 6,
+    "z": 18,
+    "heading": 265
+   }
+  },
+  {
+   "name": "colonel",
+   "cat": {
+    "x": 14,
+    "z": -2.4,
+    "heading": 0
+   }
+  }
  ]
 }

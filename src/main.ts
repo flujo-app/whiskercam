@@ -1,3 +1,5 @@
+import type { ClipFrame } from './engine/recorder';
+import { RUN_SECONDS } from './game/session';
 import * as THREE from 'three';
 import type { Controls } from './engine/input';
 import { Bot } from './game/bot';
@@ -48,6 +50,8 @@ async function start(): Promise<void> {
     size: size && size.length === 2 ? [size[0], size[1]] : undefined,
     manual,
     lean: touchDevice || params.has('lean'),
+    msaa: params.has('msaa') ? Number(params.get('msaa')) : undefined,
+    pictureScale: params.has('pics') ? Number(params.get('pics')) : undefined,
     onProgress: (f, text) => {
       bootFill.style.width = `${Math.round(f * 100)}%`;
       bootText.textContent = text;
@@ -84,7 +88,11 @@ async function start(): Promise<void> {
         hud.show('title');
       },
       saveClip() {
-        game.recorder.save(`${settings.catName.replace(/[^\w-]+/g, '_') || 'cat'}_whiskercam`);
+        game.recorder.save(clipName());
+      },
+      shareClip() {
+        const score = game.session.score;
+        void game.recorder.share(clipName(), `${score.title(settings.catName)}: ${Math.round(score.views).toLocaleString('en-GB')} views on Whiskercam. ${LINK}`);
       },
       settingsChanged() {
         saveSettings(settings);
@@ -130,21 +138,48 @@ async function start(): Promise<void> {
   });
 
   let finished = false;
+  const LINK = 'flujo-app.github.io/whiskercam';
+  const clipName = () => `${settings.catName.replace(/[^\w-]+/g, '_') || 'cat'}_whiskercam`;
+  const clip: ClipFrame = { views: 0, hype: 1, seconds: 0, battery: 1, turf: 0, turfMax: 3, stamina: 1, feed: [], comments: [], hint: '', duel: null };
   game.onFrame = (dt, controls) => {
     game.input.live = hud.current === 'none' && game.session.active && !game.paused;
     if (glowOn && glowCtx && glowTick++ % 2 === 0) glowCtx.drawImage(canvas, 0, 0, 288, 512);
     if (controls.pause) pause();
     hud.update(game.session, dt, game.input.usingTouch);
+    // the clip: the picture plus everything written on it, composed right after each frame is drawn
+    if (game.recorder.recording) {
+      const s = game.session;
+      const sc = s.score;
+      const now = sc.clock;
+      clip.views = sc.views;
+      clip.hype = sc.hype;
+      clip.seconds = s.elapsed;
+      clip.battery = s.battery / RUN_SECONDS;
+      clip.turf = sc.turf;
+      clip.turfMax = s.rivals.length;
+      clip.stamina = s.stamina;
+      clip.feed = sc.feed.map((f) => ({ text: f.text, views: f.views, age: now - f.t }));
+      clip.comments = settings.comments ? sc.comments.slice(-3).map((c) => ({ who: c.who, text: c.text, age: now - c.t })) : [];
+      clip.hint = s.hintFor > 0 ? s.hint : '';
+      clip.duel = s.phase === 'duel' && s.duel ? { you: s.playerNerve, them: s.rivalNerve, name: s.duelRival?.info.name ?? '', prompt: hud.duelPrompt } : null;
+      game.recorder.frame(clip);
+    }
     if (game.session.phase === 'ended' && !finished) {
       finished = true;
       game.input.unlockPointer();
-      const best = Math.max(settings.best, game.session.score.views);
-      void game.recorder.stop().then((ok) => {
-        hud.showEnd(game.session, settings.catName, settings.best, ok);
-        settings.best = best;
-        settings.runs += 1;
-        saveSettings(settings);
-      });
+      const score = game.session.score;
+      const best = Math.max(settings.best, score.views);
+      const making = game.recorder.recording;
+      hud.showEnd(game.session, settings.catName, settings.best, making);
+      settings.best = best;
+      settings.runs += 1;
+      saveSettings(settings);
+      if (making) {
+        // the closing card (title, views, likes) is written into the last seconds of the clip
+        void game.recorder
+          .finish({ title: score.title(settings.catName), views: score.views, likes: score.likes, rank: score.rank(), link: LINK })
+          .then((ok) => hud.clipReady(ok, ok && game.recorder.canShare(clipName())));
+      }
     }
     if (game.session.phase !== 'ended') finished = false;
   };
@@ -259,5 +294,8 @@ async function start(): Promise<void> {
 start().catch((err) => {
   console.error(err);
   boot.classList.remove('done');
-  bootText.textContent = `Could not start: ${err instanceof Error ? err.message : String(err)}`;
+  // say something a person can act on (a failed file used to show up as "[object Event]")
+  const file = (err as { target?: { src?: string } } | null)?.target?.src;
+  const why = err instanceof Error ? err.message : file ? `a file did not load (${file.split('/').pop()})` : 'a file did not load';
+  bootText.textContent = `Could not start: ${why}. Check the connection and reload the page.`;
 });

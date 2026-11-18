@@ -7,6 +7,7 @@ import {
   fullscreenVertex,
   lensFragment,
   meterFragment,
+  taaFragment,
   upFragment,
 } from './shaders/post.glsl';
 
@@ -34,6 +35,8 @@ export interface LookSettings {
   focusNear: number;
   /** how soft: blur radius right at the lens, as a fraction of the picture width */
   nearBlur: number;
+  /** smooth edges over time: how much of the past each frame keeps (0 = off, 0.9 = normal) */
+  smoothing: number;
 }
 
 export const defaultLook: LookSettings = {
@@ -53,7 +56,14 @@ export const defaultLook: LookSettings = {
   flare: 1,
   focusNear: 0.17,
   nearBlur: 0.035,
+  smoothing: 0.9,
 };
+
+/** Eight well-spread positions inside a pixel (Halton 2, 3): where the views are nudged to, frame after frame. */
+const JITTER: [number, number][] = [
+  [0.5, 0.3333], [0.25, 0.6667], [0.75, 0.1111], [0.125, 0.4444],
+  [0.625, 0.7778], [0.375, 0.2222], [0.875, 0.5556], [0.0625, 0.8889],
+];
 
 function pass(fragmentShader: string, uniforms: Record<string, THREE.IUniform>, glsl3 = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -76,6 +86,12 @@ export class Post {
   private viewDown!: THREE.WebGLRenderTarget;
   private lensRT!: THREE.WebGLRenderTarget;
   private blurRT!: THREE.WebGLRenderTarget;
+  private past: THREE.WebGLRenderTarget[] = [];
+  private pastIndex = 0;
+  private pastReset = true;
+  private frame = 0;
+  /** samples per pixel when drawing the two views (0 = no edge smoothing; set before setSize) */
+  msaa = 4;
   private bloom: THREE.WebGLRenderTarget[] = [];
   private bloomUp: THREE.WebGLRenderTarget[] = [];
   private meter: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget];
@@ -83,6 +99,7 @@ export class Post {
   private meterReset = true;
 
   private readonly lensMat: THREE.ShaderMaterial;
+  private readonly taaMat: THREE.ShaderMaterial;
   private readonly blurMat: THREE.ShaderMaterial;
   private readonly downMat: THREE.ShaderMaterial;
   private readonly upMat: THREE.ShaderMaterial;
@@ -119,9 +136,18 @@ export class Post {
         uPrevRigInv: { value: new THREE.Matrix4() },
         uVelScale: { value: 1 },
         uFringe: { value: new THREE.Vector3(1.004, 1, 0.996) },
+        uJitter: { value: new THREE.Vector2() },
       },
       true,
     );
+    this.taaMat = pass(taaFragment, {
+      uCurrent: { value: null },
+      uHistory: { value: null },
+      uVelocity: { value: null },
+      uTexel: { value: new THREE.Vector2() },
+      uInvVelScale: { value: 0 },
+      uKeep: { value: 0 },
+    });
     this.blurMat = pass(blurFragment, {
       uColor: { value: null },
       uVelocity: { value: null },
@@ -189,7 +215,7 @@ export class Post {
     this.height = height;
     this.rig.configure(width, height, quality);
     const { x: vw, y: vh } = this.rig.viewSize;
-    for (const rt of [this.viewUp, this.viewDown, this.lensRT, this.blurRT, ...this.bloom, ...this.bloomUp]) rt?.dispose();
+    for (const rt of [this.viewUp, this.viewDown, this.lensRT, this.blurRT, ...this.past, ...this.bloom, ...this.bloomUp]) rt?.dispose();
 
     const view = () => {
       const rt = new THREE.WebGLRenderTarget(vw, vh, {
@@ -197,11 +223,21 @@ export class Post {
         minFilter: THREE.LinearFilter,
         magFilter: THREE.LinearFilter,
         depthBuffer: true,
+        samples: this.msaa,
       });
-      rt.depthTexture = new THREE.DepthTexture(vw, vh);
+      rt.depthTexture = new THREE.DepthTexture(vw, vh, THREE.UnsignedIntType);
       rt.depthTexture.minFilter = rt.depthTexture.magFilter = THREE.NearestFilter;
       return rt;
     };
+    const full = () =>
+      new THREE.WebGLRenderTarget(width, height, {
+        type: THREE.HalfFloatType,
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        depthBuffer: false,
+      });
+    this.past = [full(), full()];
+    this.pastReset = true;
     this.viewUp = view();
     this.viewDown = view();
     this.lensRT = new THREE.WebGLRenderTarget(width, height, {
@@ -243,6 +279,7 @@ export class Post {
   cut(): void {
     this.hasPrev = false;
     this.meterReset = true;
+    this.pastReset = true;
   }
 
   private draw(mat: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null): void {
@@ -259,7 +296,18 @@ export class Post {
     this.time += dt;
     rig.update();
 
-    // 1. the scene, twice
+    // 1. the scene, twice. Each frame both views are nudged by a different fraction of a pixel (step 2b
+    // averages the frames); the nudge stands still while the game is paused.
+    const smoothing = look.smoothing > 0;
+    if (dt > 1e-5) this.frame++;
+    const [jx, jy] = smoothing ? JITTER[this.frame % JITTER.length] : [0.5, 0.5];
+    const { x: vw, y: vh } = rig.viewSize;
+    for (const cam of [rig.up, rig.down]) {
+      const e = cam.projectionMatrix.elements;
+      e[8] = (-2 * (jx - 0.5)) / vw;
+      e[9] = (-2 * (jy - 0.5)) / vh;
+      cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
+    }
     r.setRenderTarget(this.viewUp);
     r.render(scene, rig.up);
     r.setRenderTarget(this.viewDown);
@@ -279,13 +327,35 @@ export class Post {
     (lu.uPrevRigInv.value as THREE.Matrix4).copy(this.prevRigInv);
     lu.uVelScale.value = dt > 1e-5 ? Math.min(look.shutter / dt, 2.0) : 0;
     (lu.uFringe.value as THREE.Vector3).set(1 + look.fringe, 1, 1 - look.fringe);
+    (lu.uJitter.value as THREE.Vector2).set((jx - 0.5) / vw, (jy - 0.5) / vh);
+    const hadPrev = this.hasPrev;
     this.draw(this.lensMat, this.lensRT);
     this.prevRig.copy(rig.rig.matrixWorld);
     this.hasPrev = true;
 
+    // 2b. average with the frames before (edge smoothing over time)
+    let sharp: THREE.Texture = this.lensRT.textures[0];
+    if (smoothing) {
+      const tu = this.taaMat.uniforms;
+      const from = this.past[this.pastIndex];
+      const to = this.past[1 - this.pastIndex];
+      const scale = lu.uVelScale.value as number;
+      tu.uCurrent.value = this.lensRT.textures[0];
+      tu.uHistory.value = from.texture;
+      tu.uVelocity.value = this.lensRT.textures[1];
+      (tu.uTexel.value as THREE.Vector2).set(1 / this.width, 1 / this.height);
+      tu.uInvVelScale.value = scale > 1e-4 ? 1 / scale : 0;
+      // while paused (no time passes) the picture stands still, so the past is simply kept
+      tu.uKeep.value = this.pastReset || !hadPrev ? 0 : dt > 1e-5 ? look.smoothing : 0.98;
+      this.draw(this.taaMat, to);
+      this.pastIndex = 1 - this.pastIndex;
+      this.pastReset = false;
+      sharp = to.texture;
+    }
+
     // 3. motion streaks
     const bu = this.blurMat.uniforms;
-    bu.uColor.value = this.lensRT.textures[0];
+    bu.uColor.value = sharp;
     bu.uVelocity.value = this.lensRT.textures[1];
     bu.uMaxBlur.value = look.maxBlur;
     bu.uSeed.value = (this.time * 60) % 97;

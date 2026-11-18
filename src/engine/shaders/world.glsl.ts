@@ -95,6 +95,10 @@ uniform float uMetal;
 uniform float uNormalScale;
 uniform float uDetail;        // strength of the close-up detail layer
 uniform float uAlphaTest;
+#ifdef NEAR_FADE
+  uniform vec2 uFade;       // metres from the camera: gone inside x, solid beyond y
+  uniform float uTime;
+#endif
 
 uniform sampler2D uLmSun;
 uniform sampler2D uLmIrr;
@@ -239,11 +243,24 @@ void main() {
 
   float alphaOut = 1.0;
 
+  #ifdef NEAR_FADE
+    // Dissolves as the camera comes close (the dark core of a hedge, so a cat pushing in sees leaves and
+    // twigs instead of a flat wall). A fine dot pattern that changes every frame: smoothed over time it is a fade.
+    float keep = smoothstep(uFade.x, uFade.y, dist);
+    float dots = fract(52.9829189 * fract(dot(gl_FragCoord.xy + mod(uTime * 60.0, 64.0) * 5.588238, vec2(0.06711056, 0.00583715))));
+    if (keep <= dots) discard;
+  #endif
+
   // ---- surface description
   #ifdef USE_MAP
     vec4 texel = texture2D(uMapDiff, vUv);
     #ifdef ALPHATEST
-      if (texel.a < uAlphaTest) discard;
+      // Cut-out edges (leaves). With edge smoothing on, a pixel on the edge is covered in part: the graphics
+      // card turns the fraction written here into "some of this pixel's samples", which gives a soft edge
+      // instead of a staircase.
+      float cut = (texel.a - uAlphaTest) / max(fwidth(texel.a), 1e-4) + 0.5;
+      if (cut <= 0.0) discard;
+      alphaOut = clamp(cut, 0.0, 1.0);
     #endif
     vec3 albedo = texel.rgb * uColor;
     vec3 arm = texture2D(uMapArm, vUv).rgb;

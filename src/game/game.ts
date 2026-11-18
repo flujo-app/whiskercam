@@ -28,6 +28,10 @@ export interface GameOptions {
   manual: boolean;
   /** phones and other small devices: less grass, fewer fur layers, plants drawn less far */
   lean?: boolean;
+  /** samples per pixel for edge smoothing (default 4, 0 on phones) */
+  msaa?: number;
+  /** size of surface and light pictures: 1 = full, 0.5 = half the width and height (default by device) */
+  pictureScale?: number;
   onProgress?: (fraction: number, text: string) => void;
 }
 
@@ -76,6 +80,8 @@ export class Game {
   private constructor(readonly renderer: THREE.WebGLRenderer, readonly canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     this.scene.add(this.rig.rig);
     this.post = new Post(renderer, this.rig);
+    // phones: no extra samples per pixel (memory), the smoothing over time still runs
+    this.post.msaa = opts.msaa ?? (opts.lean ? 0 : 4);
     this.input = new Input(canvas);
     this.recorder = new Recorder(canvas);
   }
@@ -99,7 +105,14 @@ export class Game {
     const say = opts.onProgress ?? (() => {});
     say(0.02, 'Waking the cat');
     const maxAniso = Math.min(16, renderer.capabilities.getMaxAnisotropy());
-    game.world = await loadWorld(opts.set, maxAniso, (done, total) => say(0.05 + (0.75 * done) / total, 'Unrolling the estate'));
+    // phones: pictures at half size or less (a quarter of the memory or less), three at a time
+    const memory = (navigator as { deviceMemory?: number }).deviceMemory ?? 4;
+    const pictureScale = opts.pictureScale ?? (opts.lean ? (memory <= 4 ? 0.35 : 0.5) : 1);
+    game.world = await loadWorld(opts.set, maxAniso, (done, total) => say(0.05 + (0.75 * done) / total, 'Unrolling the estate'), {
+      pictureScale,
+      parallel: opts.lean ? 3 : 8,
+    });
+    if (game.world.pictures.failed.length) console.warn('pictures that did not load:', game.world.pictures.failed);
     say(0.82, 'Checking the camera');
     const sky = new Sky(game.world.materials.globals);
     await sky.load(renderer, game.world.base + game.world.info.sky.file, game.world.info.sky.range);
@@ -206,6 +219,7 @@ export class Game {
     if (this.playerCat) this.scene.remove(this.playerCat.root);
     this.playerCoat = coat;
     this.playerCat = this.catFactory(coat, 'player');
+    this.playerCat.setOwn?.(true);
     this.scene.add(this.playerCat.root);
   }
 

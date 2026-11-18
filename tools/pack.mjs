@@ -58,9 +58,9 @@ async function convert(src, dst, { size, kind }) {
   const meta = await img.metadata();
   if (size && meta.width > size) img = img.resize(size, size, { fit: 'inside', kernel: 'lanczos3' });
   const opts =
-    kind === 'normal' ? { quality: 84, smartSubsample: true, effort: 5 }
-    : kind === 'data' ? { quality: 76, smartSubsample: true, effort: 5 }
-    : { quality: 80, effort: 5 };
+    kind === 'normal' ? { quality: 92, smartSubsample: true, effort: 5 }
+    : kind === 'data' ? { quality: 82, smartSubsample: true, effort: 5 }
+    : { quality: 90, effort: 5 };
   await img.webp(opts).toFile(dst);
   return true;
 }
@@ -85,8 +85,10 @@ async function main() {
       for (const [key, map, kind] of [['diff', 'Diffuse', 'color'], ['nor', 'nor_gl', 'normal'], ['arm', 'arm', 'data']]) {
         const src = path.join(dir, `${d.ph}_${map}_${res}.jpg`);
         const file = `${d.ph}_${key}.webp`;
-        // the colour picture keeps its size; bump and roughness pictures get by with half of it
-        if (await convert(src, path.join(TEX_OUT, file), { size: kind === 'color' ? size : size / 2, kind })) made++;
+        // Looks come before download size (phones shrink the pictures themselves while loading): the surfaces
+        // the camera gets right up to keep colour and bumps at full size; the rest keep full colour, half bumps.
+        const full = kind === 'color' || (kind === 'normal' && HERO.has(d.ph));
+        if (await convert(src, path.join(TEX_OUT, file), { size: full ? size : size / 2, kind })) made++;
         m[key] = `tex/${file}`;
       }
     } else if (d.kind === 'leaf') {

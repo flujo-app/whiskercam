@@ -75,6 +75,8 @@ export interface CatVisual {
   setDetail?(distance: number): void;
   /** where the collar sits in the cat's own space (x right, y up, z back), for hanging the camera on it */
   readonly collarAt: THREE.Vector3;
+  /** mark this cat as the player's own (it rides with the camera) */
+  setOwn?(own: boolean): void;
   /** where the collar is right now in the world, after the pose (the furry cat only) */
   collarWorld?(out: THREE.Vector3): THREE.Vector3;
 }

@@ -33,6 +33,7 @@ uniform mat4 uRigWorld;       // camera rig -> world
 uniform mat4 uPrevRigInv;     // world -> where the rig was one shutter time ago
 uniform float uVelScale;
 uniform vec3 uFringe;         // colour fringing: radial scale per channel
+uniform vec2 uJitter;         // this frame's tiny shift of the two views (see taaFragment), in view uv
 
 varying vec2 vUv;
 
@@ -58,7 +59,7 @@ vec2 viewUv(vec3 dir, out float up) {
   float c = cos(a), s = sin(a);
   vec3 local = vec3(dir.x, c * dir.y + s * dir.z, -s * dir.y + c * dir.z);
   vec2 ndc = local.xy / max(-local.z, 1e-4) / uTan;
-  return ndc * 0.5 + 0.5;
+  return ndc * 0.5 + 0.5 + uJitter;
 }
 
 vec3 sampleScene(vec3 dir) {
@@ -98,9 +99,63 @@ void main() {
   vec2 prevUv = lensProject(prevDir) / uFrame * 0.5 + 0.5;
   vec2 vel = (vUv - prevUv) * uVelScale;
   if (prevDir.z > -0.05) vel = vec2(0.0);   // came from behind the lens: no sensible streak
+  // the cat's own chin, whiskers and paws ride with the camera: they have not moved in the picture
+  float own = 1.0 - step(0.5, up > 0.5 ? texture(uColUp, uv).a : texture(uColDown, uv).a);
+  vel *= 1.0 - own;
 
   outColor = vec4(col, 1.0);
-  outVelocity = vec4(vel, depth, 1.0);
+  outVelocity = vec4(vel, depth, own);
+}
+`;
+
+// Edge smoothing over time. Every frame the two views are drawn shifted by a different fraction of a pixel;
+// averaging the last frames (each one put back where it was, using how far every pixel moved) adds up to
+// many samples per pixel. That is what removes the crawling on thin things such as railings and gate bars,
+// which no single frame can draw properly because they are thinner than a pixel.
+export const taaFragment = /* glsl */ `
+precision highp float;
+uniform sampler2D uCurrent;
+uniform sampler2D uHistory;
+uniform sampler2D uVelocity;  // xy = how far the pixel moved (scaled, see uInvVelScale)
+uniform vec2 uTexel;
+uniform float uInvVelScale;
+uniform float uKeep;          // how much of the past to keep (0 = start afresh)
+varying vec2 vUv;
+
+// bright spots must not dominate the average
+vec3 squash(vec3 c) { return c / (1.0 + max(c.r, max(c.g, c.b))); }
+vec3 unsquash(vec3 c) { return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4); }
+
+void main() {
+  vec3 cur = squash(texture2D(uCurrent, vUv).rgb);
+  // what the neighbours look like now: the past is only believed as far as it fits in with them
+  vec3 lo = cur;
+  vec3 hi = cur;
+  vec3 sum = cur;
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      if (i == 0 && j == 0) continue;
+      vec3 n = squash(texture2D(uCurrent, vUv + vec2(float(i), float(j)) * uTexel).rgb);
+      lo = min(lo, n);
+      hi = max(hi, n);
+      sum += n;
+    }
+  }
+  // a slightly rounded box: mix the full neighbourhood with its plus-shaped part
+  vec3 mean = sum / 9.0;
+  lo = mix(lo, mean, 0.12);
+  hi = mix(hi, mean, 0.12);
+
+  vec4 moved = texture2D(uVelocity, vUv);
+  vec2 vel = moved.xy * uInvVelScale;
+  vec2 was = vUv - vel;
+  // the cat's own paws move on their own; keep less of the past there so they leave no trail
+  float keep = uKeep * (1.0 - 0.45 * moved.w);
+  if (was.x < 0.0 || was.x > 1.0 || was.y < 0.0 || was.y > 1.0) keep = 0.0;
+  // fast movement: lean on the new frame (the motion streaks smooth it anyway)
+  keep *= 1.0 - 0.6 * smoothstep(0.004, 0.05, length(vel));
+  vec3 past = clamp(squash(texture2D(uHistory, was).rgb), lo, hi);
+  gl_FragColor = vec4(unsquash(mix(cur, past, keep)), 1.0);
 }
 `;
 

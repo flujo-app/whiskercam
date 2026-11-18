@@ -137,8 +137,14 @@ const ready = async (page) => {
     console.log(`      clip title: ${title}`);
   });
   await step('desktop: "Save the clip" hands over a real video file', async () => {
-    const button = page.getByRole('button', { name: 'Save the clip' });
-    if (!(await button.isVisible())) throw new Error('no "Save the clip" button (recording not supported here?)');
+    // the clip takes a few more seconds: its closing card (title, views) is written at the end
+    const button = page.locator('.clip-save');
+    if (!(await button.isVisible())) throw new Error('no clip button (recording not supported here?)');
+    await page.waitForFunction(() => {
+      const b = document.querySelector('.clip-save');
+      return b && !b.disabled && b.textContent === 'Save the clip';
+    }, null, { timeout: 15000 });
+    await shot(page, 'desk_6_clip_ready');
     const [download] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), button.click()]);
     const file = path.join(outDir, download.suggestedFilename());
     await download.saveAs(file);
@@ -188,6 +194,17 @@ const ready = async (page) => {
     await shot(page, 'phone_1_title');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1 || document.documentElement.scrollHeight > innerHeight + 1);
     if (overflow) throw new Error('the page scrolls on a phone');
+  });
+  await step('phone: the pictures fit a phone\'s memory', async () => {
+    // 1.0 never started on a real phone: it unpacked about 300 full-size pictures at once
+    const m = await page.evaluate(() => {
+      const p = window.__wc.game.world.pictures;
+      return { mb: p.bytes / 1e6, count: p.total, failed: p.failed.length, scale: p.scale, parallel: p.parallel };
+    });
+    console.log(`      ${m.count} pictures at ${m.scale} size, ${m.parallel} at a time: about ${m.mb.toFixed(0)} MB on the graphics chip, ${m.failed} failed`);
+    if (m.failed) throw new Error(`${m.failed} pictures did not load`);
+    if (m.mb > 330) throw new Error(`pictures take ${m.mb.toFixed(0)} MB, more than a phone can be trusted with (330 MB)`);
+    if (m.parallel > 4) throw new Error('too many pictures are unpacked at once');
   });
   await step('phone: start, touch controls appear', async () => {
     await page.getByRole('button', { name: 'Start recording' }).tap();

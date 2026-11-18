@@ -28,6 +28,7 @@ export interface HudActions {
   restart(): void;
   toMenu(): void;
   saveClip(): void;
+  shareClip(): void;
   settingsChanged(): void;
   press(name: string, held: boolean): void;
   release(name: string): void;
@@ -67,7 +68,9 @@ export class Hud {
   private readonly endViews = el('div', 'end-views', '0');
   private readonly endMeta = el('div', 'end-meta');
   private readonly endComments = el('div', 'end-comments');
-  private readonly clipBtn = el('button', 'btn ghost', 'Save the clip');
+  private readonly clipBtn = el('button', 'btn ghost clip-save', 'Save the clip');
+  private readonly shareBtn = el('button', 'btn primary clip-share', 'Share the clip');
+  private readonly clipNote = el('div', 'clip-note');
   private readonly bestLine = el('div', 'best');
   private shownViews = 0;
   private lastComment = 0;
@@ -259,9 +262,10 @@ export class Hud {
     const again = el('button', 'btn primary', 'Run it back');
     again.addEventListener('click', () => this.actions.restart());
     this.clipBtn.addEventListener('click', () => this.actions.saveClip());
+    this.shareBtn.addEventListener('click', () => this.actions.shareClip());
     const menu = el('button', 'btn ghost', 'Menu');
     menu.addEventListener('click', () => this.actions.toMenu());
-    box.append(again, this.clipBtn, menu);
+    box.append(this.clipNote, this.shareBtn, this.clipBtn, again, menu);
     this.end.append(box);
   }
 
@@ -284,6 +288,11 @@ export class Hud {
     this.root.classList.toggle('playing', screen === 'none');
   }
 
+  /** what the fight prompt says right now (for the recorded clip) */
+  get duelPrompt(): string {
+    return this.duelKeys.textContent ?? '';
+  }
+
   get current(): string {
     return this.screen;
   }
@@ -300,6 +309,22 @@ export class Hud {
   }
 
   /** Fill in the end screen. `clip` = whether a video file is ready to save. */
+  /** The clip file is finished (or could not be made): switch the buttons on. */
+  clipReady(ok: boolean, canShare: boolean): void {
+    this.clipBtn.style.display = ok ? '' : 'none';
+    this.shareBtn.style.display = ok && canShare ? '' : 'none';
+    (this.clipBtn as HTMLButtonElement).disabled = !ok;
+    (this.shareBtn as HTMLButtonElement).disabled = !ok;
+    this.clipBtn.textContent = 'Save the clip';
+    // with a share button the save button steps back; without one it is the main thing to do
+    this.clipBtn.className = `btn ${ok && canShare ? 'ghost' : 'primary'} clip-save`;
+    this.clipNote.textContent = ok
+      ? 'Your run is a video, score and comments included. Post it as a Short, a Reel or a TikTok.'
+      : '';
+    this.clipNote.style.display = ok ? '' : 'none';
+  }
+
+  /** `clip`: is a clip of this run being finished right now? */
   showEnd(session: Session, catName: string, best: number, clip: boolean): void {
     const score = session.score;
     this.endTitle.textContent = score.title(catName);
@@ -319,7 +344,13 @@ export class Hud {
       row.append(el('b', undefined, c.who), document.createTextNode(` ${c.text}`));
       this.endComments.append(row);
     }
+    // the clip needs a few more seconds (its closing card is still being written)
     this.clipBtn.style.display = clip ? '' : 'none';
+    this.clipBtn.textContent = 'Finishing your clip…';
+    this.clipBtn.className = 'btn ghost clip-save';
+    (this.clipBtn as HTMLButtonElement).disabled = true;
+    this.shareBtn.style.display = 'none';
+    this.clipNote.style.display = 'none';
     this.show('end');
   }
 

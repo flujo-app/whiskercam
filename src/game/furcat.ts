@@ -110,7 +110,7 @@ export class FurCat implements CatVisual {
   private readonly e = new THREE.Euler();
   private readonly lag = new THREE.Vector3();
   private readonly lastPos = new THREE.Vector3();
-  private whiskerMat: THREE.LineBasicMaterial | null = null;
+  private whiskerMat: THREE.ShaderMaterial | null = null;
   /** the movement brain: turns the look into a pose */
   private readonly moves = new CatMoves();
   private readonly limbs: Limb[] = [];
@@ -188,6 +188,7 @@ export class FurCat implements CatVisual {
         uPuff: { value: 0 },
         uLag: { value: this.lag },
         uTint: { value: new THREE.Color(1, 1, 1) },
+        uOwn: { value: 0 },
         uCoatSat: { value: 1 },
         uProbeIrrUp: { value: new THREE.Color(0.3, 0.4, 0.6) },
         uProbeIrrDown: { value: new THREE.Color(0.2, 0.18, 0.15) },
@@ -284,7 +285,12 @@ export class FurCat implements CatVisual {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    this.whiskerMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+    // plain lines; the last number written is the "rides with the camera" mark (see setOwn)
+    this.whiskerMat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(1, 1, 1) }, uMark: { value: 1 } },
+      vertexShader: 'void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'uniform vec3 uColor; uniform float uMark; void main() { gl_FragColor = vec4(uColor, uMark); }',
+    });
     const lines = new THREE.LineSegments(geo, this.whiskerMat);
     lines.frustumCulled = false;
     head.add(lines);
@@ -302,9 +308,15 @@ export class FurCat implements CatVisual {
     // whiskers are white hairs: as bright as a white thing would be in this light
     const sun = this.materials.globals.uSunColor.value;
     const k = (sample.sun * 0.5) / Math.PI;
-    this.whiskerMat?.color.setRGB((sample.r + sun.r * k) * 0.8, (sample.g + sun.g * k) * 0.8, (sample.b + sun.b * k) * 0.8);
+    (this.whiskerMat?.uniforms.uColor.value as THREE.Color | undefined)?.setRGB((sample.r + sun.r * k) * 0.8, (sample.g + sun.g * k) * 0.8, (sample.b + sun.b * k) * 0.8);
     setProbe(this.fur, sample, this.materials.globals);
     for (const m of this.extra) setProbe(m, sample, this.materials.globals);
+  }
+
+  /** This is the player's own cat: it rides with the camera, so its picture must not be streaked or dragged. */
+  setOwn(own: boolean): void {
+    this.fur.uniforms.uOwn.value = own ? 1 : 0;
+    if (this.whiskerMat) this.whiskerMat.uniforms.uMark.value = own ? 0 : 1;
   }
 
   setVisible(mainView: boolean): void {

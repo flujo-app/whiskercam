@@ -50,6 +50,7 @@ precision highp float;
 uniform sampler2D uCoat;
 uniform sampler2D uFurMap;
 uniform float uDensity;
+uniform float uOwn;          // 1 = this is the player's own cat, riding with the camera
 uniform vec3 uTint;
 uniform float uCoatSat;
 uniform vec3 uProbeIrrUp;
@@ -136,6 +137,6 @@ void main() {
 
   float dist = length(cameraPosition - vWorldPos);
   color = mix(color, uFogColor, 1.0 - exp(-dist * uFogDensity));
-  gl_FragColor = vec4(color, 1.0);
+  gl_FragColor = vec4(color, 1.0 - uOwn);
 }
 `;
