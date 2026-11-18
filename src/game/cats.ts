@@ -37,7 +37,27 @@ export interface CatLook {
   puff: number;
   /** metres the throat is carried below its normal height (neck stretched low when running) */
   headLow: number;
+  /** what the cat is doing right now in a fight, a swipe or a climb; the drawing code turns it into movement */
+  act?: CatAct;
+  /** seconds since `act` began */
+  actT?: number;
+  /** how long `act` is planned to last in seconds (0 = open ended) */
+  actLen?: number;
+  /** which front paw the act uses: -1 = the cat's own left, +1 = its own right */
+  actSide?: -1 | 1;
+  /** true while all paws are off the ground */
+  airborne?: boolean;
+  /** vertical speed in metres per second while airborne (+ = going up) */
+  airSpeed?: number;
 }
+
+/**
+ * Fight moves: guard (watchful, weaving), windup (paw comes up before a swipe), feint (a windup that is
+ * called off), strike (the swipe itself), recover (off balance after a swipe), stagger (just got slapped),
+ * flee (lost, about to bolt), gloat (won). The player's side: slap, dodge (pulling back), flinch (got hit).
+ * Elsewhere: swipe (batting at a thing), mantle (front paws on a ledge, scrambling up).
+ */
+export type CatAct = 'guard' | 'windup' | 'feint' | 'strike' | 'recover' | 'stagger' | 'flee' | 'gloat' | 'slap' | 'dodge' | 'flinch' | 'swipe' | 'mantle';
 
 export const restLook = (): CatLook => ({ stance: 'stand', speed: 0, phase: 0, pawLeft: 0, pawRight: 0, headTurn: 0, flinch: 0, puff: 0, headLow: 0 });
 
