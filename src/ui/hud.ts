@@ -65,6 +65,7 @@ export class Hud {
   private readonly endMeta = el('div', 'end-meta');
   private readonly endComments = el('div', 'end-comments');
   private readonly clipBtn = el('button', 'btn ghost', 'Save the clip');
+  private readonly bestLine = el('div', 'best');
   private shownViews = 0;
   private lastComment = 0;
   private lastTurf = -1;
@@ -166,7 +167,8 @@ export class Hud {
       ? '<b>Left thumb</b> run and steer (push far to sprint) &nbsp;·&nbsp; <b>right side</b> drag to look &nbsp;·&nbsp; buttons: paws and jump'
       : '<b>W</b> run &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>mouse</b> or <b>A / D</b> steer &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>click</b> left / right paw &nbsp;·&nbsp; <b>F</b> meow &nbsp;·&nbsp; <b>S</b> pull back in a fight &nbsp;·&nbsp; <b>Esc</b> pause';
     const goal = el('div', 'goal', 'The camera battery lasts three minutes. Chase your brother, knock things over, win the turf. Everything earns views.');
-    const best = el('div', 'best', this.settings.best > 0 ? `Best clip so far: ${fmt(this.settings.best)} views` : '');
+    const best = this.bestLine;
+    best.textContent = this.settings.best > 0 ? `Best clip so far: ${fmt(this.settings.best)} views` : '';
     const about = el('div', 'about');
     about.innerHTML = `Whiskercam ${__APP_VERSION__} &nbsp;·&nbsp; <a href="https://github.com/flujo-app/whiskercam" target="_blank" rel="noopener">how it is made, credits</a>`;
     box.append(nameRow, coats, play, goal, how, best, this.settingsRows(), about);
@@ -260,6 +262,7 @@ export class Hud {
 
   show(screen: 'title' | 'pause' | 'end' | 'none'): void {
     this.screen = screen;
+    if (screen === 'title') this.bestLine.textContent = this.settings.best > 0 ? `Best clip so far: ${fmt(this.settings.best)} views` : '';
     this.title.classList.toggle('on', screen === 'title');
     this.pause.classList.toggle('on', screen === 'pause');
     this.end.classList.toggle('on', screen === 'end');
