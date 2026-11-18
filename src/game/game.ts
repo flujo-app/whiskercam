@@ -3,6 +3,7 @@ import { Audio } from '../engine/audio';
 import { Grass } from '../engine/grass';
 import { Input, type Controls } from '../engine/input';
 import { LensRig } from '../engine/lens';
+import { Pacer } from '../engine/pacer';
 import { Physics } from '../engine/physics';
 import { Post } from '../engine/post';
 import { Recorder } from '../engine/recorder';
@@ -44,16 +45,13 @@ const STEP = 1 / 60;
 /**
  * Smaller pictures for devices that cannot keep up: how finely the views are drawn, and whether edges get
  * their extra samples. A step down is only ever kept when the game demonstrably runs faster for it (see
- * `Game.pace`). Many phones are held back by the amount of geometry, not by the number of points drawn; on
- * those a smaller picture is just a worse picture.
+ * engine/pacer.ts).
  */
 const SIZES = [
   { scale: 1, smooth: true },
   { scale: 0.85, smooth: true },
   { scale: 0.72, smooth: false },
 ] as const;
-/** frames slower than this on average (seconds) count as "cannot keep up": under about 47 pictures a second */
-const SLOW = 0.0215;
 
 export class Game {
   readonly scene = new THREE.Scene();
@@ -81,17 +79,10 @@ export class Game {
   paused = false;
   /** most picture lines drawn, whatever the screen (set by the quality setting) */
   maxLines = 1600;
-  /** which of SIZES is in use */
-  private sizeStep = 0;
+  /** decides which of SIZES is in use, and whether grass, fur and far plants are thinned out */
+  readonly pacer = new Pacer();
   /** samples per pixel for edge smoothing at full size */
   private readonly msaa: number;
-  /** the stretch of frames being timed: total seconds, how many, and how many still to let pass first */
-  private readonly span = { sum: 0, n: 0, skip: 90 };
-  private slowSpans = 0;
-  /** a change that is being tried out, with the frame time before it */
-  private trial: { what: 'small' | 'middle' | 'thrifty'; before: number } | null = null;
-  private sizeSettled = false;
-  private thriftSettled = false;
   /** the grass, half the fur and the far plants are left out (only where that makes the game faster) */
   thrifty = false;
   readonly recorder: Recorder;
@@ -259,11 +250,7 @@ export class Game {
       this.opts.quality = q;
       this.maxLines = lines;
       // another picture setting: start from its full size and find out afresh what this device manages
-      this.sizeStep = 0;
-      this.sizeSettled = false;
-      this.trial = null;
-      this.slowSpans = 0;
-      this.span.skip = 60;
+      this.pacer.restart();
       this.layout();
     }
     this.input.mouseSensitivity = 0.11 * s.sensitivity;
@@ -336,81 +323,22 @@ export class Game {
     this.renderer.setSize(pw, ph, false);
     // (the two views behind the fisheye picture hold twice its pixels at full quality; a phone draws them a
     // little smaller, which on its small screen still leaves every point of the picture its own point of a view)
-    const size = SIZES[this.sizeStep];
+    const size = SIZES[this.pacer.size];
     this.post.msaa = size.smooth ? this.msaa : 0;
     this.post.setSize(pw, ph, this.opts.quality * size.scale * (this.opts.lean ? 0.8 : 1));
   }
 
-  private resize(step: number): void {
-    this.sizeStep = step;
-    this.span.skip = 24;
-    this.layout();
-  }
-
-  private setThrifty(on: boolean): void {
-    this.thrifty = on;
-    if (this.grass) this.grass.mesh.visible = !on;
-    if (this.catModel) this.catModel.thrift = on ? 0.5 : 1;
-    this.span.skip = 12;
-  }
-
-  /**
-   * Keep the game smooth, without ever paying for it with a worse picture that buys nothing.
-   *
-   * Frame times are averaged over stretches of fifty frames. When two stretches in a row are slow, the game
-   * tries the smallest picture for one stretch. Only if that is clearly faster does a smaller picture stay
-   * (the middle size if that is as fast, the smallest otherwise); if not, the full picture comes back for
-   * good and the same test is made with leaving out grass, fur and far plants.
-   */
+  /** One frame took `dt` seconds: let the pacer judge, and follow what it decides. */
   private pace(dt: number): void {
     if (this.paused || this.opts.size || document.hidden) return;
-    const s = this.span;
-    // pictures still arriving and reflections still being taken make frames late by themselves: wait for calm
-    if (this.world.pictures.owed > 0 || (this.reflections?.pending ?? 0) > 0) s.skip = Math.max(s.skip, 45);
-    // (a very long frame is the tab coming back from the background, not a slow device)
-    if (dt > 0.25) s.skip = Math.max(s.skip, 30);
-    if (s.skip > 0) {
-      s.skip--;
-      s.sum = s.n = 0;
-      return;
-    }
-    s.sum += dt;
-    if (++s.n < 50) return;
-    const avg = s.sum / s.n;
-    s.sum = s.n = 0;
-    const t = this.trial;
-    if (t) {
-      this.trial = null;
-      if (t.what === 'small') {
-        if (avg < t.before * 0.88) {
-          // fewer points do make it faster here: is the middle size as fast?
-          this.trial = { what: 'middle', before: avg };
-          this.resize(1);
-        } else {
-          this.sizeSettled = true;
-          this.resize(0);
-        }
-      } else if (t.what === 'middle') {
-        this.sizeSettled = true;
-        if (avg > t.before * 1.1) this.resize(2);
-      } else {
-        this.thriftSettled = true;
-        if (avg > t.before * 0.9) this.setThrifty(false);
-      }
-      return;
-    }
-    if (avg <= SLOW) {
-      this.slowSpans = 0;
-      return;
-    }
-    if (++this.slowSpans < 2) return;
-    this.slowSpans = 0;
-    if (!this.sizeSettled) {
-      this.trial = { what: 'small', before: avg };
-      this.resize(SIZES.length - 1);
-    } else if (!this.thriftSettled) {
-      this.trial = { what: 'thrifty', before: avg };
-      this.setThrifty(true);
+    const size = this.pacer.size;
+    const busy = this.world.pictures.owed > 0 || (this.reflections?.pending ?? 0) > 0;
+    if (!this.pacer.frame(dt, busy)) return;
+    if (this.pacer.size !== size) this.layout();
+    if (this.pacer.thrifty !== this.thrifty) {
+      this.thrifty = this.pacer.thrifty;
+      if (this.grass) this.grass.mesh.visible = !this.thrifty;
+      if (this.catModel) this.catModel.thrift = this.thrifty ? 0.5 : 1;
     }
   }
 
