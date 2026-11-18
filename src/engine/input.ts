@@ -15,6 +15,8 @@ export interface Controls {
   pawRight: boolean;
   dodge: boolean;
   pause: boolean;
+  /** the jump button is being held down (a longer hold jumps higher) */
+  jumpHeld?: boolean;
   /** the cat says something (true only on the frame the key went down) */
   meow?: boolean;
   /** any key, click or tap this frame (used by "press to start") */
@@ -31,6 +33,8 @@ export class Input {
   mouseSensitivity = 0.11; // degrees per pixel
   touchSensitivity = 0.28;
   usingTouch = false;
+  /** true while a run is on and no menu is showing: mouse clicks then belong to the game */
+  live = false;
   /** called when the on-screen stick should be drawn (nulls = hide) */
   onStick: ((centre: { x: number; y: number } | null, knob: { x: number; y: number } | null) => void) | null = null;
   private readonly down = new Set<string>();
@@ -57,11 +61,17 @@ export class Input {
     addEventListener('keyup', (e) => this.down.delete(e.code));
     addEventListener('blur', () => this.down.clear());
 
-    target.addEventListener('mousedown', (e) => {
+    // A click always counts while a run is on, whether or not the browser has let us capture the mouse
+    // (after an Esc it can refuse for a moment). A click that finds the mouse free also captures it again.
+    addEventListener('mousedown', (e) => {
       this.any = true;
-      if (document.pointerLockElement === target) {
-        this.pressed.add(e.button === 2 ? 'MouseRight' : 'MouseLeft');
-      }
+      if (!this.live || this.usingTouch || e.button === 1) return;
+      this.pressed.add(e.button === 2 ? 'MouseRight' : 'MouseLeft');
+      if (document.pointerLockElement !== target) this.lockPointer();
+      e.preventDefault();
+    });
+    addEventListener('contextmenu', (e) => {
+      if (this.live) e.preventDefault();
     });
     target.addEventListener('contextmenu', (e) => e.preventDefault());
     addEventListener('mousemove', (e) => {
@@ -79,7 +89,13 @@ export class Input {
   /** Capture the mouse so moving it steers (desktop). Must be called from a click. */
   lockPointer(): void {
     if (!this.usingTouch && document.pointerLockElement !== this.target) {
-      void this.target.requestPointerLock?.();
+      try {
+        // browsers refuse this now and then (right after Esc, for instance): the next click simply tries again
+        const asked = this.target.requestPointerLock?.() as Promise<void> | undefined;
+        asked?.catch?.(() => undefined);
+      } catch {
+        // older browsers throw instead of returning a promise
+      }
     }
   }
 
@@ -171,6 +187,7 @@ export class Input {
     let turn = (this.held('KeyD', 'ArrowRight') ? 1 : 0) - (this.held('KeyA', 'ArrowLeft') ? 1 : 0);
     let sprint = this.held('ShiftLeft', 'ShiftRight') || this.virtual.has('sprint');
     let jump = this.hit('Space', 'v:jump');
+    let jumpHeld = this.held('Space') || this.virtual.has('jump');
     let pawLeft = this.hit('MouseLeft', 'KeyJ', 'KeyQ', 'v:pawLeft');
     let pawRight = this.hit('MouseRight', 'KeyK', 'KeyE', 'v:pawRight');
     let dodge = this.hit('KeyS', 'ArrowDown', 'ControlLeft', 'v:dodge');
@@ -193,6 +210,7 @@ export class Input {
       const b = pad.buttons.map((x) => x.pressed);
       const edge = (i: number) => !!b[i] && !this.padButtons[i];
       if (edge(0)) jump = true;
+      if (b[0]) jumpHeld = true;
       if (edge(2) || edge(4)) pawLeft = true;
       if (edge(1) || edge(5)) pawRight = true;
       if (edge(3)) dodge = true;
@@ -208,6 +226,7 @@ export class Input {
     s.pitch = pitch;
     s.sprint = sprint;
     s.jump = jump;
+    s.jumpHeld = jumpHeld;
     s.pawLeft = pawLeft;
     s.pawRight = pawRight;
     s.dodge = dodge;

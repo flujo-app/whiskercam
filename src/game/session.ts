@@ -353,6 +353,10 @@ export class Session {
     look.pawRight = lerp(look.pawRight, duel.rivalSide > 0 ? raise : 0, raise > look.pawRight ? 16 : 9);
     look.flinch = Math.max(0, look.flinch - dt * 2.4);
     look.puff = lerp(look.puff, duel.over === 'won' ? 0 : 1, 3);
+    look.act = duel.rivalState === 'intro' ? 'guard' : duel.rivalState;
+    look.actT = duel.rivalT;
+    look.actLen = duel.rivalLen;
+    look.actSide = duel.rivalSide;
 
     // how the fight moves the camera
     const dodging = duel.playerState === 'dodge' ? Math.sin(Math.min(1, duel.playerT / 0.6) * Math.PI) : 0;
@@ -500,6 +504,23 @@ export class Session {
     pl.speed = Math.abs(this.player.speed);
     pl.phase = this.player.phase;
     pl.stance = this.phase === 'duel' ? 'fight' : this.player.crouch > 0.5 ? 'crouch' : pl.speed > 0.15 ? 'move' : 'stand';
+    pl.airborne = this.player.airborne;
+    pl.airSpeed = this.player.body.vy;
+    if (this.phase === 'duel' && this.duel) {
+      const d = this.duel;
+      pl.act = d.playerState === 'ready' ? 'guard' : d.playerState;
+      pl.actT = d.playerT;
+      pl.actLen = d.playerLen;
+      pl.actSide = d.playerSide;
+    } else if (this.swipeAnim[0] > 0 || this.swipeAnim[1] > 0) {
+      const i = this.swipeAnim[0] >= this.swipeAnim[1] ? 0 : 1;
+      pl.act = 'swipe';
+      pl.actT = (1 - Math.min(1, this.swipeAnim[i])) / 4.5;
+      pl.actLen = 1 / 4.5;
+      pl.actSide = i === 0 ? -1 : 1;
+    } else {
+      pl.act = undefined;
+    }
 
     if (!this.active) {
       if (this.phase === 'ending') {

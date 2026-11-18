@@ -129,6 +129,7 @@ async function start(): Promise<void> {
 
   let finished = false;
   game.onFrame = (dt, controls) => {
+    game.input.live = hud.current === 'none' && game.session.active && !game.paused;
     if (glowOn && glowCtx && glowTick++ % 2 === 0) glowCtx.drawImage(canvas, 0, 0, 288, 512);
     if (controls.pause) pause();
     hud.update(game.session, dt, game.input.usingTouch);

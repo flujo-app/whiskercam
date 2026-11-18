@@ -119,9 +119,19 @@ export class Hud {
       e.preventDefault();
       e.stopPropagation();
       this.actions.press(name, false);
+      this.actions.press(name, true); // and it stays down until let go (a longer hold jumps higher)
+    };
+    const up = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.actions.release(name);
     };
     b.addEventListener('touchstart', down, { passive: false });
+    b.addEventListener('touchend', up, { passive: false });
+    b.addEventListener('touchcancel', up, { passive: false });
     b.addEventListener('mousedown', down);
+    b.addEventListener('mouseup', up);
+    b.addEventListener('mouseleave', up);
     return b;
   }
 

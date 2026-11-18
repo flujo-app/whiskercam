@@ -228,6 +228,26 @@ export class Duel {
     }
   }
 
+  /** How long the rival's current move lasts from start to end, in seconds (0 = open ended). */
+  get rivalLen(): number {
+    const t = this.tuning;
+    switch (this.rivalState) {
+      case 'intro': return 0.9;
+      case 'guard': return this.guardFor;
+      case 'feint': return t.windup * 0.7;
+      case 'windup': return t.windup;
+      case 'strike': return 0.16;
+      case 'recover': return this.missed ? 0.85 : 0.5;
+      case 'stagger': return 0.34;
+      default: return 0;
+    }
+  }
+
+  /** How long the player's current move lasts from start to end, in seconds (0 = open ended). */
+  get playerLen(): number {
+    return this.playerState === 'slap' ? SLAP_TIME : this.playerState === 'dodge' ? DODGE_TIME : this.playerState === 'flinch' ? FLINCH_TIME : 0;
+  }
+
   /** Hand the collected events to the caller and forget them. */
   drain(): DuelEvent[] {
     return this.events.splice(0, this.events.length);
