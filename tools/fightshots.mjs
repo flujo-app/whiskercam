@@ -215,6 +215,9 @@ const SEQ = {
 
 const opts = { rival: rivalIndex, coat, level, side, pcoat };
 const sheets = [];
+/** what was going on in each saved frame (frames/labels.json), for building other sheets later */
+const labelFile = path.join(outDir, 'frames', 'labels.json');
+const labels = JSON.parse(await fs.readFile(labelFile, 'utf8').catch(() => '{}'));
 
 for (const name of seqs) {
   const q = SEQ[name];
@@ -281,6 +284,7 @@ for (const name of seqs) {
     await fs.writeFile(camFile, Buffer.from(res.cam.split(',')[1], 'base64'));
     await fs.writeFile(sideFile, Buffer.from(res.side.split(',')[1], 'base64'));
     const label = `${f} ${res.label}`;
+    labels[id] = res.label;
     camShots.push({ file: camFile, label });
     sideShots.push({ file: sideFile, label });
   }
@@ -312,6 +316,8 @@ async function sheet(out, items, { cols, w, h, crop }) {
     .toFile(out);
 }
 
+await fs.mkdir(path.dirname(labelFile), { recursive: true });
+await fs.writeFile(labelFile, JSON.stringify(labels, null, 1));
 console.log('sheets:\n' + sheets.join('\n'));
 if (problems.length) console.log('browser messages:\n' + [...new Set(problems)].slice(0, 20).join('\n'));
 await browser.close();
