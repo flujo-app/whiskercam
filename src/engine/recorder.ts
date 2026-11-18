@@ -4,6 +4,7 @@
  * clip's title and score. (Version 1.0 recorded the bare camera picture, so a shared clip said nothing
  * about what happened in it.)
  */
+import { count, num, S, word } from '../i18n';
 
 /** What to write on top of the picture for one frame. */
 export interface ClipFrame {
@@ -153,7 +154,7 @@ export class Recorder {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#f5f2ea';
     ctx.font = `700 ${u * 2.9}px ${FONT}`;
-    const views = Math.round(f.views).toLocaleString('en-GB');
+    const views = num(f.views);
     ctx.fillText(views, u * 5.6, u * 7.3);
     this.eye(ctx, u * 3.3, u * 7.3, u * 1.25);
     if (f.hype > 1.01) {
@@ -193,7 +194,7 @@ export class Recorder {
       if (a <= 0) continue;
       ctx.globalAlpha = a;
       ctx.font = `700 ${u * 2}px ${FONT}`;
-      const gain = `+${Math.round(p.views).toLocaleString('en-GB')}`;
+      const gain = `+${num(p.views)}`;
       const gw = ctx.measureText(gain).width;
       ctx.font = `600 ${u * 2}px ${FONT}`;
       const tw = ctx.measureText(p.text).width;
@@ -219,7 +220,7 @@ export class Recorder {
       const x0 = W * 0.08;
       const bw2 = W * 0.84;
       let dy = u * 24;
-      for (const [label, value, colour] of [['You', f.duel.you, '#f5f2ea'], [f.duel.name, f.duel.them, '#ff4a2e']] as const) {
+      for (const [label, value, colour] of [[S().duel.you, f.duel.you, '#f5f2ea'], [f.duel.name, f.duel.them, '#ff4a2e']] as const) {
         ctx.textAlign = 'left';
         ctx.font = `600 ${u * 1.6}px ${FONT}`;
         ctx.fillStyle = '#f5f2ea';
@@ -279,8 +280,16 @@ export class Recorder {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ff4a2e';
+    // "C L I P   P O S T E D", in whatever language: letters spaced out, smaller if it would not fit
+    const posted = S()
+      .end.posted.toLocaleUpperCase(S().locale)
+      .split(' ')
+      .map((w) => [...w].join(' '))
+      .join('   ');
     ctx.font = `800 ${u * 1.9}px ${FONT}`;
-    ctx.fillText('C L I P   P O S T E D', W / 2, H * 0.3);
+    const wide = ctx.measureText(posted).width;
+    if (wide > W * 0.86) ctx.font = `800 ${(u * 1.9 * W * 0.86) / wide}px ${FONT}`;
+    ctx.fillText(posted, W / 2, H * 0.3);
     // the title, on up to three lines
     ctx.fillStyle = '#f5f2ea';
     ctx.font = `800 ${u * 3.6}px ${FONT}`;
@@ -305,13 +314,13 @@ export class Recorder {
     // the count runs up
     const shown = Math.round(c.views * Math.min(1, t / 1.3) ** 0.6);
     ctx.font = `900 ${u * 9}px ${FONT}`;
-    ctx.fillText(shown.toLocaleString('en-GB'), W / 2, y + u * 5.5);
+    ctx.fillText(num(shown), W / 2, y + u * 5.5);
     ctx.font = `600 ${u * 2.2}px ${FONT}`;
     ctx.globalAlpha = a * 0.8;
-    ctx.fillText('views', W / 2, y + u * 11.4);
+    ctx.fillText(word(c.views, S().end.views), W / 2, y + u * 11.4);
     ctx.globalAlpha = a;
     ctx.font = `700 ${u * 2.1}px ${FONT}`;
-    ctx.fillText(`${c.likes.toLocaleString('en-GB')} likes   ·   ${c.rank}`, W / 2, y + u * 16.2);
+    ctx.fillText(`${count(c.likes, S().end.likes)}   ·   ${c.rank}`, W / 2, y + u * 16.2, W * 0.92);
     ctx.globalAlpha = a * 0.75;
     ctx.font = `600 ${u * 1.7}px ${FONT}`;
     ctx.fillText(c.link, W / 2, H * 0.9);

@@ -2,6 +2,7 @@
  * The clip's audience. Everything the cat does is worth "views" once the clip is posted;
  * doing different things in a row builds hype, which multiplies them.
  */
+import { catName, fill, S } from '../i18n';
 
 export type Deed =
   | 'chase'       // keeping up with the brother (ticks)
@@ -27,17 +28,8 @@ const BASE: Record<Deed, number> = {
   dodge: 500, turf: 12000, flawless: 6000, lostDuel: 600, pigeons: 1500, meow: 250, climb: 2400, mirror: 1800,
 };
 
-const LABEL: Partial<Record<Deed, string>> = {
-  tag: 'Tagged Rocket', knock: 'Knocked it over', undercar: 'Under the car', hedge: 'Through the hedge',
-  zoomies: 'Zoomies', jump: 'Big jump', counter: 'Got in first', dodge: 'Made them miss', turf: 'Turf taken',
-  flawless: 'Not a scratch', lostDuel: 'Took a slapping', pigeons: 'Scattered the pigeons', meow: 'Said hello', climb: 'Up a tree',
-  mirror: 'Who is that?',
-};
-
-const KNOCK_NAMES: Record<string, [string, number]> = {
-  pot: ['Pot, meet floor', 1500], vase: ['That was a nice vase', 2200], gnome: ['Gnome down', 2600], can: ['Kicked the can', 600],
-  bottle: ['Bottle bowling', 700], ball: ['Ball!', 400], sign: ['Sign flattened', 1100], lid: ['Bin lid crash', 1300],
-};
+/** views for knocking over each kind of thing (their names are in the language files, under `knocks`) */
+const KNOCK_VIEWS: Record<string, number> = { pot: 1500, vase: 2200, gnome: 2600, can: 600, bottle: 700, ball: 400, sign: 1100, lid: 1300 };
 
 export interface Popup {
   text: string;
@@ -57,36 +49,6 @@ const NAMES = [
   'the_real_gran', 'window_bird_watcher', 'catnip_dealer', 'sock_thief', 'three_am_zoomer', 'box_resident', 'pspspsps',
   'vet_tech_lu', 'ginger_appreciator', 'cardboard_castle', 'toe_bean_counter', 'small_tiger_fan', 'nanna_pat',
 ];
-
-const LINES: Record<string, string[]> = {
-  idle: [
-    'he is so low to the ground', 'the chin cam is sending me', 'where is he going', 'what a lovely day for crimes',
-    'i can hear the little bell', 'who put a camera on this animal', 'this is better than tv', 'why am i nervous',
-    'look at those whiskers', 'first', 'the commitment to the bit', 'cat tax paid in full',
-  ],
-  chase: ['GO GO GO', 'he is gaining', 'brothers.', 'the tabby is too fast', 'legs for days', 'CATCH HIM', 'olympic final energy'],
-  tag: ['GOT HIM', 'tag you are it', 'justice', 'rocket in shambles', 'he let you win (he did not)'],
-  knock: ['NOT THE POT', 'gravity check complete', 'no thoughts just push', 'he looked at it first. premeditated.', 'someone is paying for that', 'classic'],
-  gnome: ['THE GNOME', 'rest in pieces little guy', 'the gnome had a family'],
-  undercar: ['it went dark', 'under the car like a pro', 'liquid confirmed', 'mind the exhaust'],
-  hedge: ['through the hedge!!', 'leaves everywhere', 'shortcut unlocked', 'hedge: 0 cat: 1'],
-  zoomies: ['ZOOMIES', 'maximum speed achieved', 'somebody stop him', 'he has the speed of ten cats'],
-  jump: ['AIR', 'ten out of ten landing', 'parkour'],
-  slap: ['BAP', 'bap bap bap', 'right on the nose', 'hands rated E for everyone'],
-  counter: ['he got in first!!', 'reflexes', 'read like a book'],
-  dodge: ['matrix dodge', 'missed him', 'too slow'],
-  playerHit: ['ouch', 'he felt that one', 'shake it off', 'that was personal'],
-  turf: ['NEW KING', 'the bins are ours', 'he ran!!', 'respect earned', 'this is his estate now'],
-  lostDuel: ['we go again', 'pain', 'that cat lifts', 'strategic retreat'],
-  battery: ['battery is dying nooo', 'do not end here', 'someone charge this cat'],
-  duelStart: ['oh no', 'here we go', 'that one looks mean', 'square up', 'ears are back. it is on.'],
-  pigeons: ['PIGEONS', 'he has wanted to do that all day', 'chaos'],
-  climb: ['HOW is he getting down', 'someone call the fire brigade', 'the view from up there', 'tree cat', 'he lives there now'],
-  blocked: ['batted away', 'stop flailing!!', 'wait for it', 'patience, small tiger'],
-  rivalWinded: ['he is puffed, GO', 'now now now', 'out of breath lol'],
-  meow: ['he said hello', 'MEOW', 'talkative today', 'someone translate that', 'he is calling his brother'],
-  mirror: ['HE SEES HIMSELF', 'who is that handsome cat', 'the other cat has a camera too', 'he does not know it is him', 'main character moment', 'staring contest with himself', 'the cat in the door started it'],
-};
 
 export class Score {
   views = 0;
@@ -115,16 +77,24 @@ export class Score {
   }
 
   say(topic: string): void {
-    const pool = LINES[topic] ?? LINES.idle;
+    const lines = S().lines as Record<string, string[]>;
+    const pool = lines[topic] ?? lines.idle;
     this.comments.push({ who: this.pick(NAMES), text: this.pick(pool), t: this.time });
     if (this.comments.length > 40) this.comments.shift();
   }
 
-  /** Something happened. `detail` picks a special name (kind of thing knocked over). Returns the views earned. */
+  /**
+   * Something happened. `detail` picks a special name (the kind of thing knocked over, the cat that was
+   * caught). Returns the views earned.
+   */
   add(deed: Deed, detail?: string, scale = 1): number {
     let base = BASE[deed];
-    let label = LABEL[deed];
-    if (deed === 'knock' && detail && KNOCK_NAMES[detail]) [label, base] = KNOCK_NAMES[detail];
+    let label: string | undefined = (S().deeds as Record<string, string>)[deed];
+    if (deed === 'tag' && label) label = fill(label, { name: catName(detail ?? 'Rocket') });
+    if (deed === 'knock' && detail && KNOCK_VIEWS[detail]) {
+      label = (S().knocks as Record<string, string>)[detail] ?? label;
+      base = KNOCK_VIEWS[detail];
+    }
     if (deed !== 'chase' && !this.recent.has(deed)) this.hype = Math.min(3, this.hype + 0.25);
     if (deed !== 'chase') this.recent.set(deed, this.time);
     const gain = Math.round(base * scale * this.hype);
@@ -169,27 +139,26 @@ export class Score {
 
   rank(): string {
     const v = this.views;
-    if (v >= 400000) return 'Internet famous';
-    if (v >= 200000) return 'Estate legend';
-    if (v >= 90000) return 'Local menace';
-    if (v >= 35000) return 'Street cat';
-    if (v >= 10000) return 'Garden explorer';
-    return 'Indoor cat';
+    const step = v >= 400000 ? 5 : v >= 200000 ? 4 : v >= 90000 ? 3 : v >= 35000 ? 2 : v >= 10000 ? 1 : 0;
+    const ranks = S().ranks;
+    return ranks[Math.min(step, ranks.length - 1)];
   }
 
   /** A clip title made from what actually happened. */
-  title(catName: string): string {
+  title(name: string): string {
+    const w = S().clipTitle;
     const bits: string[] = [];
-    if (this.turf >= 3) bits.push('takes over the whole estate');
-    else if (this.turf > 0) bits.push(`wins ${this.turf === 1 ? 'a turf war' : 'two turf wars'}`);
-    if ((this.counts.tag ?? 0) > 0) bits.push('finally catches his brother');
-    else if ((this.counts.chase ?? 0) > 60) bits.push('chases his faster brother');
+    if (this.turf >= 3) bits.push(w.turfAll);
+    else if (this.turf > 0) bits.push(this.turf === 1 ? w.turfOne : w.turfTwo);
+    if ((this.counts.tag ?? 0) > 0) bits.push(w.tag);
+    else if ((this.counts.chase ?? 0) > 60) bits.push(w.chase);
     const knocks = this.counts.knock ?? 0;
-    if (knocks >= 5) bits.push(`knocks over ${knocks} things`);
-    else if (knocks > 0) bits.push('knocks a pot off the wall');
-    if ((this.counts.undercar ?? 0) > 0 && bits.length < 3) bits.push('goes under a car');
-    if (bits.length === 0) bits.push('goes for a quiet walk');
-    const body = bits.slice(0, 3).join(', ').replace(/, ([^,]*)$/, ' and $1');
-    return `${catName} ${body}`;
+    if (knocks >= 5) bits.push(fill(w.knocksMany, { n: knocks }));
+    else if (knocks > 0) bits.push(w.knocksFew);
+    if ((this.counts.undercar ?? 0) > 0 && bits.length < 3) bits.push(w.undercar);
+    if (bits.length === 0) bits.push(w.quiet);
+    const said = bits.slice(0, 3);
+    const deeds = said.length > 1 ? `${said.slice(0, -1).join(w.comma)}${w.and}${said[said.length - 1]}` : said[0];
+    return fill(w.pattern, { name, deeds });
   }
 }

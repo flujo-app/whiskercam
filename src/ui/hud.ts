@@ -2,6 +2,7 @@ import type { Coat } from '../game/cats';
 import type { Session } from '../game/session';
 import { RUN_SECONDS } from '../game/session';
 import type { Settings } from '../game/settings';
+import { catName, count, fill, LANGUAGES, num, S, word } from '../i18n';
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
@@ -10,16 +11,16 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e;
 };
 
-const fmt = (n: number): string => Math.round(n).toLocaleString('en-GB');
+const fmt = num;
 const clock = (s: number): string => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-const COATS: [Coat, string, string][] = [
-  ['ginger', 'Ginger', '#c9742c'],
-  ['tabby', 'Tabby', '#7a6248'],
-  ['black', 'Black', '#1c1c1f'],
-  ['white', 'White', '#e9e6df'],
-  ['grey', 'Grey', '#7d848c'],
-  ['tux', 'Tuxedo', '#2a2a2e'],
+const COATS: [Coat, string][] = [
+  ['ginger', '#c9742c'],
+  ['tabby', '#7a6248'],
+  ['black', '#1c1c1f'],
+  ['white', '#e9e6df'],
+  ['grey', '#7d848c'],
+  ['tux', '#2a2a2e'],
 ];
 
 export interface HudActions {
@@ -66,10 +67,15 @@ export class Hud {
   private readonly end = el('div', 'screen end');
   private readonly endTitle = el('div', 'end-title');
   private readonly endViews = el('div', 'end-views', '0');
+  private readonly endUnit = el('div', 'end-unit');
   private readonly endMeta = el('div', 'end-meta');
   private readonly endComments = el('div', 'end-comments');
-  private readonly clipBtn = el('button', 'btn ghost clip-save', 'Save the clip');
-  private readonly shareBtn = el('button', 'btn primary clip-share', 'Share the clip');
+  private readonly clipBtn = el('button', 'btn ghost clip-save');
+  private readonly shareBtn = el('button', 'btn primary clip-share');
+  private readonly youLabel = el('span', 'duel-name');
+  private readonly touchLabels: [HTMLElement, 'left' | 'right' | 'jump'][] = [];
+  /** what the clip button says at the moment: still being finished, or ready to save */
+  private clipState: 'finishing' | 'ready' = 'ready';
   private readonly clipNote = el('div', 'clip-note');
   private readonly bestLine = el('div', 'best');
   private shownViews = 0;
@@ -79,7 +85,7 @@ export class Hud {
   private endTarget = 0;
   private screen: 'title' | 'pause' | 'end' | 'none' = 'title';
 
-  constructor(private readonly settings: Settings, private readonly actions: HudActions, touchDevice: boolean) {
+  constructor(private readonly settings: Settings, private readonly actions: HudActions, private readonly touchDevice: boolean) {
     this.root = document.getElementById('hud') as HTMLElement;
     this.root.innerHTML = '';
 
@@ -90,16 +96,15 @@ export class Hud {
     top.append(this.rec, this.battery);
 
     this.views.append(this.eye(), this.viewsNum, this.hype);
-    this.duel.append(this.bar('You', this.duelYou), this.bar('', this.duelThem, this.duelName), this.duelKeys, this.duelHelp);
-    this.duelHelp.textContent = touchDevice ? 'paw buttons: slap  ·  Jump button: pull back' : 'click or Q / E: slap  ·  S or Space: pull back';
+    this.duel.append(this.bar('', this.duelYou, this.youLabel), this.bar('', this.duelThem, this.duelName), this.duelKeys, this.duelHelp);
     this.breath.append(this.breathFill);
     this.stick.append(this.knob);
-    this.touch.append(this.stick, this.touchButton('pawLeft', 'Left paw', 'paw-l'), this.touchButton('pawRight', 'Right paw', 'paw-r'), this.touchButton('jump', 'Jump', 'jump'));
+    this.touch.append(this.stick, this.touchButton('pawLeft', 'left', 'paw-l'), this.touchButton('pawRight', 'right', 'paw-r'), this.touchButton('jump', 'jump', 'jump'));
     if (!touchDevice) this.touch.style.display = 'none';
+    this.clipBtn.addEventListener('click', () => this.actions.saveClip());
+    this.shareBtn.addEventListener('click', () => this.actions.shareClip());
 
-    this.buildTitle(touchDevice);
-    this.buildPause();
-    this.buildEnd();
+    this.relabel();
     this.root.append(top, this.views, this.breath, this.turf, this.popups, this.comments, this.hint, this.duel, this.touch, this.flash, this.title, this.pause, this.end);
     this.show('title');
   }
@@ -121,8 +126,33 @@ export class Hud {
     return row;
   }
 
-  private touchButton(name: string, label: string, cls: string): HTMLElement {
-    const b = el('button', `tbtn ${cls}`, label);
+  /**
+   * Write every label in the language in use. Called once at the start and again when the player picks
+   * another language: the three menu screens are built afresh, the labels on the picture are rewritten.
+   */
+  relabel(): void {
+    const w = S();
+    const settingsOpen = this.title.querySelector('details.settings')?.hasAttribute('open') ?? false;
+    for (const screen of [this.title, this.pause, this.end]) screen.innerHTML = '';
+    this.buildTitle(this.touchDevice);
+    this.buildPause();
+    this.buildEnd();
+    if (settingsOpen) this.title.querySelector('details.settings')?.setAttribute('open', '');
+    this.youLabel.textContent = w.duel.you;
+    this.duelHelp.textContent = this.touchDevice ? w.duel.helpTouch : w.duel.helpKeys;
+    for (const [button, key] of this.touchLabels) button.textContent = w.touch[key];
+    this.shareBtn.textContent = w.end.share;
+    this.clipBtn.textContent = this.clipState === 'finishing' ? w.end.finishing : w.end.save;
+    this.clipNote.textContent = w.end.note;
+  }
+
+  private bestText(): string {
+    return this.settings.best > 0 ? fill(S().title.best, { views: count(this.settings.best, S().end.views) }) : '';
+  }
+
+  private touchButton(name: string, label: 'left' | 'right' | 'jump', cls: string): HTMLElement {
+    const b = el('button', `tbtn ${cls}`);
+    this.touchLabels.push([b, label]);
     const down = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
@@ -145,15 +175,16 @@ export class Hud {
 
   private buildTitle(touchDevice: boolean): void {
     const box = el('div', 'panel');
-    box.append(el('div', 'logo', 'Whiskercam'), el('div', 'tag', 'A day on the estate, filmed from under a cat’s chin.'));
+    const w = S();
+    box.append(el('div', 'logo', 'Whiskercam'), el('div', 'tag', w.page.tagline));
 
     const nameRow = el('label', 'field');
-    nameRow.append(el('span', 'field-label', 'Your cat'));
+    nameRow.append(el('span', 'field-label', w.title.yourCat));
     const name = el('input', 'name');
     name.type = 'text';
     name.maxLength = 14;
     name.value = this.settings.catName;
-    name.setAttribute('aria-label', 'Cat name');
+    name.setAttribute('aria-label', w.title.catName);
     name.addEventListener('input', () => {
       this.settings.catName = name.value.trim() || 'Biscuit';
       this.actions.settingsChanged();
@@ -161,10 +192,10 @@ export class Hud {
     nameRow.append(name);
 
     const coats = el('div', 'coats');
-    for (const [id, label, colour] of COATS) {
+    for (const [id, colour] of COATS) {
       const b = el('button', 'coat');
-      b.title = label;
-      b.setAttribute('aria-label', label);
+      b.title = w.coats[id];
+      b.setAttribute('aria-label', w.coats[id]);
       b.style.setProperty('--c', colour);
       if (id === 'tux') b.classList.add('tux');
       if (this.settings.coat === id) b.classList.add('on');
@@ -177,40 +208,50 @@ export class Hud {
       coats.append(b);
     }
 
-    const play = el('button', 'btn primary', 'Start recording');
+    const play = el('button', 'btn primary', w.title.start);
     play.addEventListener('click', () => this.actions.play());
 
     const how = el('div', 'how');
-    how.innerHTML = touchDevice
-      ? '<b>Left thumb</b> run and steer (push far to sprint) &nbsp;·&nbsp; <b>right side</b> drag to look &nbsp;·&nbsp; buttons: paws and jump (a pounce on the run, a high jump from a standstill) &nbsp;·&nbsp; push against a tree or a fence to climb it'
-      : '<b>W</b> run &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>mouse</b> or <b>A / D</b> steer &nbsp;·&nbsp; <b>Space</b> pounce (stand still for a high jump) &nbsp;·&nbsp; <b>click</b> or <b>Q / E</b> paws &nbsp;·&nbsp; <b>F</b> meow &nbsp;·&nbsp; push against a tree or a fence to climb &nbsp;·&nbsp; <b>S</b> pull back in a fight &nbsp;·&nbsp; <b>Esc</b> pause';
-    const goal = el('div', 'goal', 'The camera battery lasts three minutes. Chase your brother, knock things over, climb a tree, win the turf. Everything earns views, and the run becomes a video you can post.');
+    how.innerHTML = touchDevice ? w.title.howTouch : w.title.howKeys;
+    const goal = el('div', 'goal', w.title.goal);
     const best = this.bestLine;
-    best.textContent = this.settings.best > 0 ? `Best clip so far: ${fmt(this.settings.best)} views` : '';
+    best.textContent = this.bestText();
     const about = el('div', 'about');
-    about.innerHTML = `Whiskercam ${__APP_VERSION__} &nbsp;·&nbsp; <a href="https://github.com/flujo-app/whiskercam" target="_blank" rel="noopener">how it is made, credits</a>`;
+    about.innerHTML = `Whiskercam ${__APP_VERSION__} &nbsp;·&nbsp; <a href="https://github.com/flujo-app/whiskercam" target="_blank" rel="noopener">${w.title.about}</a>`;
     box.append(nameRow, coats, play, goal, how, best, this.settingsRows(), about);
     this.title.append(box);
   }
 
   private settingsRows(): HTMLElement {
+    const w = S().settings;
     const wrap = el('details', 'settings');
-    wrap.append(el('summary', undefined, 'Settings'));
+    wrap.append(el('summary', undefined, w.heading));
     const range = (label: string, key: 'volume' | 'sensitivity' | 'motion', min: number, max: number) => this.rangeRow(label, key, min, max);
-    const q = el('label', 'field');
-    q.append(el('span', 'field-label', 'Picture'));
-    const sel = el('select');
-    ['Faster', 'Balanced', 'Sharpest'].forEach((name, i) => {
-      const o = el('option', undefined, name);
-      o.value = String(i);
-      sel.append(o);
-    });
-    sel.value = String(this.settings.quality);
-    sel.addEventListener('change', () => {
-      this.settings.quality = Number(sel.value);
+    const choice = (label: string, options: [string, string][], value: string, picked: (value: string) => void) => {
+      const row = el('label', 'field');
+      row.append(el('span', 'field-label', label));
+      const sel = el('select');
+      for (const [id, name] of options) {
+        const o = el('option', undefined, name);
+        o.value = id;
+        sel.append(o);
+      }
+      sel.value = value;
+      sel.addEventListener('change', () => picked(sel.value));
+      row.append(sel);
+      return row;
+    };
+    const picture = choice(w.picture, [['0', w.faster], ['1', w.balanced], ['2', w.sharpest]], String(this.settings.quality), (v) => {
+      this.settings.quality = Number(v);
       this.actions.settingsChanged();
     });
-    q.append(sel);
+    // every language under its own name, so it can be found by someone who cannot read the one in use
+    const languages: [string, string][] = [['auto', w.automatic], ...LANGUAGES.map((l): [string, string] => [l.code, l.name])];
+    const language = choice(w.language, languages, this.settings.language, (v) => {
+      this.settings.language = v;
+      this.actions.settingsChanged();
+    });
+    language.classList.add('language');
     const check = (label: string, key: 'comments' | 'record') => {
       const row = el('label', 'field check');
       const input = el('input');
@@ -223,8 +264,8 @@ export class Hud {
       row.append(input, el('span', undefined, label));
       return row;
     };
-    wrap.append(q, range('Sound', 'volume', 0, 1), range('Turning speed', 'sensitivity', 0.4, 2), range('Camera shake', 'motion', 0, 1),
-      check('Show viewer comments', 'comments'), check('Keep the clip as a video file', 'record'));
+    wrap.append(language, picture, range(w.sound, 'volume', 0, 1), range(w.turning, 'sensitivity', 0.4, 2), range(w.shake, 'motion', 0, 1),
+      check(w.comments, 'comments'), check(w.record, 'record'));
     return wrap;
   }
 
@@ -253,16 +294,17 @@ export class Hud {
 
   private buildPause(): void {
     const box = el('div', 'panel small');
-    box.append(el('div', 'logo small', 'Paused'));
+    const w = S();
+    box.append(el('div', 'logo small', w.pause.heading));
     // the things a player wants to change once they have seen the picture move
     const comfort = el('div', 'settings open');
-    comfort.append(this.rangeRow('Camera shake', 'motion', 0, 1), this.rangeRow('Turning speed', 'sensitivity', 0.4, 2), this.rangeRow('Sound', 'volume', 0, 1));
+    comfort.append(this.rangeRow(w.settings.shake, 'motion', 0, 1), this.rangeRow(w.settings.turning, 'sensitivity', 0.4, 2), this.rangeRow(w.settings.sound, 'volume', 0, 1));
     box.append(comfort);
-    const resume = el('button', 'btn primary', 'Carry on');
+    const resume = el('button', 'btn primary', w.pause.resume);
     resume.addEventListener('click', () => this.actions.resume());
-    const again = el('button', 'btn ghost', 'Start over');
+    const again = el('button', 'btn ghost', w.pause.restart);
     again.addEventListener('click', () => this.actions.restart());
-    const menu = el('button', 'btn ghost', 'Back to menu');
+    const menu = el('button', 'btn ghost', w.pause.menu);
     menu.addEventListener('click', () => this.actions.toMenu());
     box.append(resume, again, menu);
     this.pause.append(box);
@@ -270,12 +312,11 @@ export class Hud {
 
   private buildEnd(): void {
     const box = el('div', 'panel');
-    box.append(el('div', 'end-label', 'Clip posted'), this.endTitle, this.endViews, el('div', 'end-unit', 'views'), this.endMeta, this.endComments);
-    const again = el('button', 'btn primary', 'Run it back');
+    const w = S().end;
+    box.append(el('div', 'end-label', w.posted), this.endTitle, this.endViews, this.endUnit, this.endMeta, this.endComments);
+    const again = el('button', 'btn primary', w.again);
     again.addEventListener('click', () => this.actions.restart());
-    this.clipBtn.addEventListener('click', () => this.actions.saveClip());
-    this.shareBtn.addEventListener('click', () => this.actions.shareClip());
-    const menu = el('button', 'btn ghost', 'Menu');
+    const menu = el('button', 'btn ghost', w.menu);
     menu.addEventListener('click', () => this.actions.toMenu());
     box.append(this.clipNote, this.shareBtn, this.clipBtn, again, menu);
     this.end.append(box);
@@ -293,7 +334,7 @@ export class Hud {
 
   show(screen: 'title' | 'pause' | 'end' | 'none'): void {
     this.screen = screen;
-    if (screen === 'title') this.bestLine.textContent = this.settings.best > 0 ? `Best clip so far: ${fmt(this.settings.best)} views` : '';
+    if (screen === 'title') this.bestLine.textContent = this.bestText();
     this.title.classList.toggle('on', screen === 'title');
     this.pause.classList.toggle('on', screen === 'pause');
     this.end.classList.toggle('on', screen === 'end');
@@ -327,12 +368,11 @@ export class Hud {
     this.shareBtn.style.display = ok && canShare ? '' : 'none';
     (this.clipBtn as HTMLButtonElement).disabled = !ok;
     (this.shareBtn as HTMLButtonElement).disabled = !ok;
-    this.clipBtn.textContent = 'Save the clip';
+    this.clipState = 'ready';
+    this.clipBtn.textContent = S().end.save;
     // with a share button the save button steps back; without one it is the main thing to do
     this.clipBtn.className = `btn ${ok && canShare ? 'ghost' : 'primary'} clip-save`;
-    this.clipNote.textContent = ok
-      ? 'Your run is a video, score and comments included. Post it as a Short, a Reel or a TikTok.'
-      : '';
+    this.clipNote.textContent = S().end.note;
     this.clipNote.style.display = ok ? '' : 'none';
   }
 
@@ -344,12 +384,14 @@ export class Hud {
     this.endCount = 0;
     const record = score.views >= best && score.views > 0;
     this.endMeta.innerHTML = '';
+    const w = S().end;
+    this.endUnit.textContent = word(score.views, w.views);
     this.endMeta.append(
-      el('span', 'chip', `${fmt(score.likes)} likes`),
-      el('span', 'chip', `Turf ${score.turf} / ${session.rivals.length}`),
+      el('span', 'chip', count(score.likes, w.likes)),
+      el('span', 'chip', fill(w.turf, { won: score.turf, all: session.rivals.length })),
       el('span', 'chip rank', score.rank()),
     );
-    if (record) this.endMeta.append(el('span', 'chip best', 'Personal best'));
+    if (record) this.endMeta.append(el('span', 'chip best', w.best));
     this.endComments.innerHTML = '';
     for (const c of score.comments.slice(-3)) {
       const row = el('div', 'comment');
@@ -358,7 +400,8 @@ export class Hud {
     }
     // the clip needs a few more seconds (its closing card is still being written)
     this.clipBtn.style.display = clip ? '' : 'none';
-    this.clipBtn.textContent = 'Finishing your clip…';
+    this.clipState = 'finishing';
+    this.clipBtn.textContent = w.finishing;
     this.clipBtn.className = 'btn ghost clip-save';
     (this.clipBtn as HTMLButtonElement).disabled = true;
     this.shareBtn.style.display = 'none';
@@ -421,22 +464,23 @@ export class Hud {
     if (inDuel) {
       this.duelYou.style.width = `${session.playerNerve * 100}%`;
       this.duelThem.style.width = `${session.rivalNerve * 100}%`;
-      this.duelName.textContent = session.duelRival?.info.name ?? '';
+      this.duelName.textContent = catName(session.duelRival?.info.name ?? '');
       const d = session.duel!;
       const open = d.rivalState === 'recover' || d.rivalState === 'stagger';
       const danger = d.rivalState === 'windup' || d.rivalState === 'feint' || d.rivalState === 'strike';
       const puffed = d.stamina < 0.16;
       // The prompt teaches the rhythm: wait, pull back when the paw comes up, hit back while it is off balance.
-      let text = puffed ? 'Catch your breath' : 'Wait for the paw';
+      const w = S().duel;
+      let text = puffed ? w.breathe : w.wait;
       let mood = '';
       if (d.playerState === 'parried') {
-        text = 'Batted away!';
+        text = w.batted;
         mood = ' danger';
       } else if (danger) {
-        text = 'Pull back!';
+        text = w.pull;
         mood = ' danger';
       } else if (open || d.rivalWinded) {
-        text = puffed ? 'Out of breath' : d.rivalWinded && !open ? 'It is out of breath: slap!' : 'Now! Slap!';
+        text = puffed ? w.puffed : d.rivalWinded && !open ? w.rivalPuffed : w.now;
         mood = puffed ? '' : ' open';
       }
       this.duelKeys.textContent = text;

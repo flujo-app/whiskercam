@@ -7,6 +7,7 @@ import { restLook, type CatLook, type Coat } from './game/cats';
 import type { FurCat } from './game/furcat';
 import { Game } from './game/game';
 import { loadSettings, QUALITY_SCALE, saveSettings } from './game/settings';
+import { catName, chooseLanguage, count, fill, language, LANGUAGES, S, setLanguage } from './i18n';
 import { Hud } from './ui/hud';
 
 const params = new URLSearchParams(location.search);
@@ -18,14 +19,16 @@ const boot = document.getElementById('boot') as HTMLElement;
 /** Can this browser draw the game at all? Returns a plain-language reason when it cannot. */
 function unsupported(): string | null {
   const probe = document.createElement('canvas').getContext('webgl2');
-  if (!probe) return 'This browser cannot show the game: it needs WebGL 2. A current Chrome, Edge, Firefox or Safari will work.';
-  if (!probe.getExtension('EXT_color_buffer_float') && !probe.getExtension('EXT_color_buffer_half_float')) {
-    return 'This device’s graphics cannot show the game (no high-range colour buffers). Try another browser or device.';
-  }
+  if (!probe) return S().boot.noWebgl;
+  if (!probe.getExtension('EXT_color_buffer_float') && !probe.getExtension('EXT_color_buffer_half_float')) return S().boot.noFloat;
   return null;
 }
 
 async function start(): Promise<void> {
+  // the player's language first: everything after this is written in it (?lang=xx overrides, for tests)
+  const settings = loadSettings();
+  await setLanguage(chooseLanguage(params.get('lang') ?? settings.language));
+  bootText.textContent = S().boot.waking;
   const reason = unsupported();
   if (reason) {
     bootText.textContent = reason;
@@ -36,9 +39,8 @@ async function start(): Promise<void> {
     e.preventDefault();
     boot.classList.remove('done');
     (bootFill.parentElement as HTMLElement).style.display = 'none';
-    bootText.textContent = 'The graphics card dropped the game. Reload the page to carry on.';
+    bootText.textContent = S().boot.lost;
   });
-  const settings = loadSettings();
   const manual = params.has('manual');
   const touchDevice = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
   const size = params.get('size')?.split('x').map(Number);
@@ -92,11 +94,14 @@ async function start(): Promise<void> {
       },
       shareClip() {
         const score = game.session.score;
-        void game.recorder.share(clipName(), `${score.title(settings.catName)}: ${Math.round(score.views).toLocaleString('en-GB')} views on Whiskercam. ${LINK}`);
+        void game.recorder.share(clipName(), fill(S().end.shareText, { title: score.title(settings.catName), views: count(score.views, S().end.views), link: LINK }));
       },
       settingsChanged() {
         saveSettings(settings);
         game.applySettings(settings);
+        // another language: fetch its words, then write every label again
+        const wanted = chooseLanguage(settings.language);
+        if (wanted !== language()) void setLanguage(wanted).then(() => hud.relabel());
       },
       press: (name, held) => game.input.press(name, held),
       release: (name) => game.input.release(name),
@@ -161,7 +166,7 @@ async function start(): Promise<void> {
       clip.feed = sc.feed.map((f) => ({ text: f.text, views: f.views, age: now - f.t }));
       clip.comments = settings.comments ? sc.comments.slice(-3).map((c) => ({ who: c.who, text: c.text, age: now - c.t })) : [];
       clip.hint = s.hintFor > 0 ? s.hint : '';
-      clip.duel = s.phase === 'duel' && s.duel ? { you: s.playerNerve, them: s.rivalNerve, name: s.duelRival?.info.name ?? '', prompt: hud.duelPrompt } : null;
+      clip.duel = s.phase === 'duel' && s.duel ? { you: s.playerNerve, them: s.rivalNerve, name: catName(s.duelRival?.info.name ?? ''), prompt: hud.duelPrompt } : null;
       game.recorder.frame(clip);
     }
     if (game.session.phase === 'ended' && !finished) {
@@ -283,6 +288,8 @@ async function start(): Promise<void> {
       return canvas.toDataURL('image/jpeg', 0.92);
     },
   };
+  // tests look at the words of every language, and switch between them
+  (api as unknown as { i18n: unknown }).i18n = { S, LANGUAGES, setLanguage, relabel: () => hud.relabel() };
   // tests need to cast rays at what is drawn, to compare it with what is solid
   (api as unknown as { THREE: unknown }).THREE = THREE;
   (window as unknown as { __wc: typeof api }).__wc = api;
@@ -296,6 +303,6 @@ start().catch((err) => {
   boot.classList.remove('done');
   // say something a person can act on (a failed file used to show up as "[object Event]")
   const file = (err as { target?: { src?: string } } | null)?.target?.src;
-  const why = err instanceof Error ? err.message : file ? `a file did not load (${file.split('/').pop()})` : 'a file did not load';
-  bootText.textContent = `Could not start: ${why}. Check the connection and reload the page.`;
+  const why = err instanceof Error ? err.message : file ? fill(S().boot.fileMissing, { file: file.split('/').pop() ?? '' }) : S().boot.fileMissingPlain;
+  bootText.textContent = fill(S().boot.failed, { why });
 });

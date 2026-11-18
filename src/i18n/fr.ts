@@ -1,0 +1,210 @@
+import { forms, type Strings } from './en';
+
+const fr: Strings = {
+  locale: 'fr-FR',
+
+  page: {
+    tagline: 'Une journée dans le quartier, filmée sous le menton d’un chat.',
+  },
+
+  boot: {
+    waking: 'On réveille le chat',
+    unrolling: 'On déroule le quartier',
+    camera: 'On vérifie la caméra',
+    claws: 'On aiguise les griffes',
+    ready: 'C’est prêt',
+    noWebgl: 'Ce navigateur ne peut pas afficher le jeu : il lui faut WebGL 2. Un Chrome, Edge, Firefox ou Safari récent fera l’affaire.',
+    noFloat: 'La carte graphique de cet appareil ne peut pas afficher le jeu (pas de tampons de couleur à grande plage). Essaie un autre navigateur ou un autre appareil.',
+    lost: 'La carte graphique a lâché le jeu. Recharge la page pour continuer.',
+    failed: 'Impossible de démarrer : {why}. Vérifie ta connexion et recharge la page.',
+    fileMissing: 'un fichier ne s’est pas chargé ({file})',
+    fileMissingPlain: 'un fichier ne s’est pas chargé',
+  },
+
+  title: {
+    yourCat: 'Ton chat',
+    catName: 'Nom du chat',
+    start: 'Lancer la caméra',
+    goal: 'La batterie de la caméra tient trois minutes. Poursuis ton frère, fais tomber des trucs, grimpe à un arbre, prends le territoire. Tout rapporte des vues, et ta partie devient une vidéo que tu peux poster.',
+    howTouch:
+      '<b>Pouce gauche</b> courir et se diriger (pousse loin pour sprinter) &nbsp;·&nbsp; <b>côté droit</b> glisse pour regarder &nbsp;·&nbsp; <b>Saut</b> appuie pour bondir, maintiens pour sauter plus haut ; face à une voiture ou un mur, le chat atterrit dessus &nbsp;·&nbsp; <b>pattes</b> pour donner des tapes &nbsp;·&nbsp; pousse contre un arbre ou une clôture pour grimper',
+    howKeys:
+      '<b>W</b> courir &nbsp;·&nbsp; <b>Maj</b> sprinter &nbsp;·&nbsp; <b>souris</b> ou <b>A / D</b> se diriger &nbsp;·&nbsp; <b>Espace</b> appuie pour bondir, maintiens pour sauter plus haut ; face à une voiture ou un mur, le chat atterrit dessus &nbsp;·&nbsp; <b>clic</b> ou <b>Q / E</b> pattes &nbsp;·&nbsp; <b>F</b> miauler &nbsp;·&nbsp; pousse contre un arbre ou une clôture pour grimper &nbsp;·&nbsp; <b>S</b> reculer pendant un combat &nbsp;·&nbsp; <b>Esc</b> pause',
+    best: 'Ta meilleure vidéo : {views}',
+    about: 'comment c’est fait, crédits',
+  },
+
+  coats: {
+    ginger: 'Roux',
+    tabby: 'Tigré',
+    black: 'Noir',
+    white: 'Blanc',
+    grey: 'Gris',
+    tux: 'Smoking',
+  },
+
+  settings: {
+    heading: 'Réglages',
+    picture: 'Image',
+    faster: 'Rapide',
+    balanced: 'Équilibrée',
+    sharpest: 'La plus nette',
+    sound: 'Son',
+    turning: 'Vitesse de rotation',
+    shake: 'Secousses de la caméra',
+    comments: 'Afficher les commentaires',
+    record: 'Garder la vidéo en fichier',
+    language: 'Langue',
+    automatic: 'Automatique',
+  },
+
+  pause: {
+    heading: 'Pause',
+    resume: 'Continuer',
+    restart: 'Recommencer',
+    menu: 'Retour au menu',
+  },
+
+  end: {
+    posted: 'Vidéo publiée',
+    views: forms({ one: 'vue', many: 'de vues', other: 'vues' }),
+    likes: forms({ one: 'j’aime', many: 'de j’aime', other: 'j’aime' }),
+    turf: 'Territoires {won} / {all}',
+    best: 'Record perso',
+    again: 'On remet ça',
+    menu: 'Menu',
+    save: 'Enregistrer la vidéo',
+    share: 'Partager la vidéo',
+    finishing: 'On finalise ta vidéo…',
+    note: 'Ta partie est une vidéo, score et commentaires compris. Poste-la en Short, en Reel ou sur TikTok.',
+    shareText: '{title} : {views} sur Whiskercam. {link}',
+  },
+
+  touch: {
+    left: 'Patte gauche',
+    right: 'Patte droite',
+    jump: 'Saut',
+  },
+
+  duel: {
+    you: 'Toi',
+    helpTouch: 'boutons pattes : taper  ·  bouton Saut : reculer',
+    helpKeys: 'clic ou Q / E : taper  ·  S ou Espace : reculer',
+    breathe: 'Reprends ton souffle',
+    wait: 'Attends son coup de patte',
+    batted: 'Contré !',
+    pull: 'Recule !',
+    puffed: 'À bout de souffle',
+    rivalPuffed: 'Il est essoufflé : tape !',
+    now: 'Maintenant ! Tape !',
+  },
+
+  hints: {
+    follow: 'Suis {name}',
+    tagged: 'Touché, {name} !',
+    puffed: 'À bout de souffle',
+    rivalPuffed: '{name} n’a plus de souffle',
+    backOff: 'Aïe. Recule, pour l’instant',
+    battery: 'Batterie faible',
+    guards: {
+      'the bins': '{name} défend les poubelles',
+      'the car port': '{name} défend l’abri à voitures',
+      'the square': '{name} défend la place',
+      other: '{name} défend ce coin',
+    },
+    won: {
+      'the bins': 'Les poubelles sont à toi',
+      'the car port': 'L’abri à voitures est à toi',
+      'the square': 'La place est à toi',
+      other: 'Ce coin est à toi',
+    },
+  },
+
+  names: {
+    Rocket: 'Rocket',
+    'Big Ginger': 'Gros Rouquin',
+    Duchess: 'Duchesse',
+    'The Colonel': 'Le Colonel',
+  },
+
+  deeds: {
+    tag: 'Tu as eu {name}',
+    knock: 'Et hop, par terre',
+    undercar: 'Sous la voiture',
+    hedge: 'À travers la haie',
+    zoomies: 'Les 5 minutes de folie',
+    jump: 'Sacré saut',
+    counter: 'Premier à frapper',
+    dodge: 'Belle esquive',
+    turf: 'Territoire conquis',
+    flawless: 'Pas une égratignure',
+    lostDuel: 'Tu t’es pris une raclée',
+    pigeons: 'Pigeons éparpillés',
+    meow: 'Un petit bonjour',
+    climb: 'Perché dans un arbre',
+    mirror: 'C’est qui, lui ?',
+  },
+
+  knocks: {
+    pot: 'Pot, je te présente le sol',
+    vase: 'C’était un joli vase',
+    gnome: 'Nain à terre',
+    can: 'Canette shootée',
+    bottle: 'Strike de bouteilles',
+    ball: 'Ballon !',
+    sign: 'Panneau aplati',
+    lid: 'Badaboum, le couvercle',
+  },
+
+  ranks: ['Chat d’appartement', 'Aventurier du jardin', 'Chat de gouttière', 'Terreur du coin', 'Légende du quartier', 'Star d’Internet'],
+
+  clipTitle: {
+    pattern: '{name} {deeds}',
+    comma: ', ',
+    and: ' et ',
+    turfAll: 'conquiert tout le quartier',
+    turfOne: 'gagne une guerre de territoire',
+    turfTwo: 'gagne deux guerres de territoire',
+    tag: 'attrape enfin son frère',
+    chase: 'court après un frère trop rapide',
+    knocksMany: 'fait tomber {n} trucs',
+    knocksFew: 'fait tomber un pot du muret',
+    undercar: 'passe sous une voiture',
+    quiet: 'se fait une petite balade tranquille',
+  },
+
+  lines: {
+    idle: [
+      'il est tellement près du sol', 'la caméra au menton jsuis mort', 'il va où là', 'belle journée pour commettre des crimes',
+      'j’entends la petite clochette', 'qui a mis une caméra sur cet animal', 'c’est mieux que la télé', 'pourquoi je stresse',
+      'regardez-moi ces moustaches', 'premier', 'il s’investit à fond dans le rôle', 'ma dose de chat du jour',
+    ],
+    chase: ['ALLEZ ALLEZ ALLEZ', 'il se rapproche', 'les frères.', 'le tigré est trop rapide', 'des pattes interminables', 'ATTRAPE-LE', 'on se croirait en finale des JO'],
+    tag: ['CHOPÉ', 'c’est toi le chat', 'justice', 'rocket en PLS', 'il t’a laissé gagner (non)'],
+    knock: ['PAS LE POT', 'test de gravité validé', 'zéro neurone, juste pousser', 'il l’a regardé avant. préméditation.', 'qui c’est qui paie ça', 'un classique'],
+    gnome: ['LE NAIN', 'repose en miettes petit bonhomme', 'le nain avait une famille'],
+    undercar: ['il fait tout noir', 'sous la voiture comme un pro', 'état liquide confirmé', 'attention au pot d’échappement'],
+    hedge: ['à travers la haie !!', 'des feuilles partout', 'raccourci débloqué', 'haie : 0 chat : 1'],
+    zoomies: ['LES 5 MINUTES DE FOLIE', 'vitesse maximale atteinte', 'arrêtez-le', 'il a la vitesse de dix chats'],
+    jump: ['IL VOLE', 'atterrissage 10/10', 'parkour'],
+    slap: ['PAF', 'paf paf paf', 'en plein sur le nez', 'distribution de patates gratuite'],
+    counter: ['il a frappé le premier !!', 'quels réflexes', 'lu comme un livre ouvert'],
+    dodge: ['esquive à la matrix', 'raté', 'trop lent'],
+    playerHit: ['aïe', 'il l’a sentie celle-là', 'on se relève', 'c’était personnel'],
+    turf: ['NOUVEAU ROI', 'les poubelles sont à nous', 'il s’est enfui !!', 'respect', 'c’est son quartier maintenant'],
+    lostDuel: ['on y retourne', 'souffrance', 'ce chat fait de la muscu', 'repli stratégique'],
+    battery: ['la batterie meurt nooon', 'pas maintenant', 'quelqu’un recharge ce chat'],
+    duelStart: ['oh non', 'c’est parti', 'il a l’air méchant celui-là', 'ça va chauffer', 'oreilles en arrière. c’est la guerre.'],
+    pigeons: ['PIGEONS', 'il attendait ça depuis ce matin', 'le chaos'],
+    climb: ['COMMENT il va redescendre', 'appelez les pompiers', 'la vue de là-haut', 'chat-écureuil', 'il habite là-haut maintenant'],
+    blocked: ['contré', 'arrête de gesticuler !!', 'attends le bon moment', 'patience, petit tigre'],
+    rivalWinded: ['il est cuit, VAS-Y', 'maintenant maintenant maintenant', 'il est essoufflé mdr'],
+    meow: ['il a dit bonjour', 'MIAOU', 'bavard aujourd’hui', 'quelqu’un peut traduire', 'il appelle son frère'],
+    mirror: [
+      'IL SE VOIT', 'mais qui est ce beau chat', 'l’autre chat a une caméra aussi', 'il sait pas que c’est lui',
+      'il se prend pour le héros du film', 'concours de regard avec lui-même', 'c’est le chat de la porte qui a commencé',
+    ],
+  },
+};
+
+export default fr;
