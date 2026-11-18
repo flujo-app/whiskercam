@@ -1,0 +1,11 @@
+{
+  "name": "Whiskercam",
+  "short_name": "Whiskercam",
+  "description": "A day on the estate, filmed from under a cat's chin.",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0b0b0c",
+  "theme_color": "#0b0b0c",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

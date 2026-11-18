@@ -1,0 +1,1 @@
+{"surfaces": ["asphalt", "pavers", "concrete", "grass", "soil", "wood", "gravel", "metal", "plaster", "hedge"], "groups": {"solid": {"vertices": 17287, "triangles": 28541, "pos": 0, "idx": 207444, "surf": 549936}, "soft": {"vertices": 312, "triangles": 428, "pos": 578480, "idx": 582224, "surf": 587360}}}
