@@ -550,8 +550,9 @@ def p_entrance_door(w=1.9, h=2.35) -> G:
             fx0 = sx0 + 0.03 + c * (cw + 0.02)
             fz0 = 0.11 + r * (rh + 0.02)
             bx((fx0, R + 0.012, fz0), (fx0 + cw, R + 0.03, fz0 + rh), "steel", 0.002)
-            bx((fx0 + 0.03, R + 0.009, fz0 + rh - 0.065), (fx0 + cw - 0.03, R + 0.012, fz0 + rh - 0.048), "black", 0.0)
-            bx((fx0 + 0.04, R + 0.0105, fz0 + 0.035), (fx0 + 0.12, R + 0.012, fz0 + 0.06), "label", 0.0)
+            bx((fx0 + 0.03, R + 0.008, fz0 + rh - 0.065), (fx0 + cw - 0.03, R + 0.012, fz0 + rh - 0.048), "black", 0.0)
+            # (4 mm proud of the box front: anything flatter flickers against it from across the street)
+            bx((fx0 + 0.04, R + 0.008, fz0 + 0.035), (fx0 + 0.12, R + 0.012, fz0 + 0.06), "label", 0.0)
     gy = R + 0.04
     g.poly([(sx0, gy, 1.045), (sx1, gy, 1.045), (sx1, gy, 2.08), (sx0, gy, 2.08)], "GLASS_DOOR", nrm=(0, -1, 0))
     g.poly([(t, gy, 2.15), (w - t, gy, 2.15), (w - t, gy, h - t), (t, gy, h - t)], "GLASS_DOOR", nrm=(0, -1, 0))

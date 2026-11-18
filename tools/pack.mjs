@@ -205,6 +205,78 @@ async function main() {
         }
       }
     }
+    // Ground that is sealed off (under a building, under the slab of a landing, inside a tree trunk) gets no
+    // light at all, and rightly so. But a cat on that landing and a weed against that wall take their light
+    // from this picture, so sealed ground takes over the light of the nearest ground that does see the sky.
+    {
+      const N = W * H;
+      const at = (i) => (Math.floor(i / W) * W * 2 + (i % W)) * 3;
+      const known = new Uint8Array(N);
+      for (let i = 0; i < N; i++) {
+        const a = at(i);
+        known[i] = Math.max(out[a], out[a + 1], out[a + 2]) > 3 ? 1 : 0;
+      }
+      const around = (i, fn) => {
+        const x = i % W;
+        const y = (i - x) / W;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if ((dx || dy) && x + dx >= 0 && x + dx < W && y + dy >= 0 && y + dy < H) fn(i + dy * W + dx);
+          }
+        }
+      };
+      // a point on the very edge of a slab is half one thing and half the other: it counts as sealed too
+      const rim = [];
+      for (let i = 0; i < N; i++) {
+        if (!known[i]) continue;
+        let sealed = false;
+        around(i, (j) => { if (!known[j]) sealed = true; });
+        if (sealed) rim.push(i);
+      }
+      for (const i of rim) known[i] = 0;
+      // then the known light grows inwards, one ring of points at a time
+      let front = [];
+      const queued = new Uint8Array(N);
+      for (let i = 0; i < N; i++) {
+        if (known[i]) continue;
+        let near = false;
+        around(i, (j) => { if (known[j]) near = true; });
+        if (near) { front.push(i); queued[i] = 1; }
+      }
+      let filled = 0;
+      while (front.length) {
+        const values = front.map((i) => {
+          const sum = [0, 0, 0, 0];
+          let n = 0;
+          around(i, (j) => {
+            if (!known[j]) return;
+            const a = at(j);
+            sum[0] += out[a];
+            sum[1] += out[a + 1];
+            sum[2] += out[a + 2];
+            sum[3] += out[a + W * 3];
+            n++;
+          });
+          return sum.map((v) => Math.round(v / n));
+        });
+        const next = [];
+        front.forEach((i, k) => {
+          const a = at(i);
+          const v = values[k];
+          out[a] = v[0];
+          out[a + 1] = v[1];
+          out[a + 2] = v[2];
+          out[a + W * 3] = out[a + W * 3 + 1] = out[a + W * 3 + 2] = v[3];
+          known[i] = 1;
+          filled++;
+        });
+        for (const i of front) {
+          around(i, (j) => { if (!known[j] && !queued[j]) { queued[j] = 1; next.push(j); } });
+        }
+        front = next;
+      }
+      console.log(`  ground light: ${((filled / N) * 100).toFixed(1)}% of the ground is sealed and borrows its light from next door`);
+    }
     await sharp(out, { raw: { width: W * 2, height: H, channels: 3 } }).webp({ lossless: true, effort: 4 }).toFile(path.join(OUT, 'ground_light.webp'));
     world.ground_light = { file: 'ground_light.webp', x0, z0, w: cols * T, h: rows * T };
     made++;

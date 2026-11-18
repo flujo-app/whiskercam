@@ -103,12 +103,11 @@ export class Pictures {
 
   /** Hand a picture to a texture (replacing the small copy, if one is there). */
   private put(tex: THREE.Texture, bmp: ImageBitmap | HTMLImageElement, final: boolean): void {
-    const had = tex.image as { width: number; height: number } | null;
     const channels = tex.format === THREE.RedFormat ? 1 : 4;
     const size = (w: number, h: number) => w * h * channels * (tex.generateMipmaps ? 4 / 3 : 1);
-    if (had) {
-      // another size: the graphics chip must make room afresh
-      this.bytes -= size(had.width, had.height);
+    if (tex.image) {
+      // another size: the graphics chip must make room afresh (and the small copy no longer counts)
+      this.bytes -= (tex.userData.bytes as number | undefined) ?? 0;
       tex.dispose();
     }
     tex.image = bmp;
@@ -121,7 +120,8 @@ export class Pictures {
         tex.onUpdate = null as unknown as () => void;
       };
     }
-    this.bytes += size(bmp.width, bmp.height);
+    tex.userData.bytes = size(bmp.width, bmp.height);
+    this.bytes += tex.userData.bytes as number;
     if (final) tex.userData.sharp = true;
   }
 

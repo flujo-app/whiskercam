@@ -53,13 +53,13 @@ export const defaultLook: LookSettings = {
   shutter: 1 / 60,
   maxBlur: 0.09,
   adaptBrighter: 0.3,
-  adaptDarker: 0.9,
+  adaptDarker: 0.5,
   fringe: 0.004,
   flare: 1,
   focusNear: 0.17,
   nearBlur: 0.035,
   smoothing: 0.9,
-  darkest: 0.004,
+  darkest: 0.0012,
 };
 
 /** Eight well-spread positions inside a pixel (Halton 2, 3): where the views are nudged to, frame after frame. */

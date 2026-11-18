@@ -119,7 +119,7 @@ export class Props {
   }
 
   private light(p: Prop): void {
-    const s = this.world.groundLight.sample(p.group.position.x, p.group.position.z, this.sample);
+    const s = this.world.groundLight.sample(p.group.position.x, p.group.position.z, this.sample, p.group.position.y);
     for (const m of p.materials) setProbe(m, s, this.world.materials.globals);
     p.litAt.copy(p.group.position);
   }

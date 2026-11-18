@@ -10,9 +10,11 @@ built by Python scripts in Blender and then handed to the game. Nothing is model
 2. **Bake** (`pipeline/blender/wc/bake.py`): Blender's film-quality renderer (Cycles) works out
    the light once: where the sun reaches, how much sky each spot sees, how light bounces. The
    world is cut into slices so each job fits an 8 GB graphics card.
-3. **Pack** (`tools/pack.mjs`): pictures are shrunk and re-encoded for the web.
+3. **Pack** (`tools/pack.mjs`): pictures are shrunk and re-encoded for the web. Every picture also
+   gets a small copy the game can start on, and buildings, cars and trees get a simplified copy for phones.
 4. **Play** (`src/`): the game looks the baked light up and adds everything a small camera
-   does to a picture: fisheye lens, motion streaks, automatic exposure, glare, grain.
+   does to a picture: fisheye lens, motion streaks, automatic exposure, glare, grain. It takes its own
+   all-round pictures of the estate for reflections (`src/engine/reflections.ts`).
 
 ## Commands
 
@@ -29,6 +31,7 @@ node tools/shots.mjs estate                               test pictures from a h
 node tools/playtest.mjs estate                            a bot plays a whole round -> build/playtest/
 node tools/uitest.mjs estate                              clicks through every screen, desktop and phone size
 node tools/bench.mjs estate                               how long a frame really takes, at several spots
+node tools/bench.mjs estate 576x1280 '[[8,-2,60]]' "lean=1&q=0.9"     the same for the phone layout (page options last)
 node tools/roamtest.mjs estate                            sends the cat at every kerb, stair, pipe, car, tree, fence and hedge
 blender -b --factory-startup -P pipeline/blender/run.py -- export_collision   only what the cat bumps into (no bake)
 node tools/credits.mjs                                    rewrite CREDITS.md from what is used
@@ -36,6 +39,44 @@ node tools/deploy.mjs                                     build and publish the 
 ```
 
 The whole estate (build, bake, pack) takes about an hour on an RTX 2070 Super with 8 GB.
+
+### How the light is baked (and why not the obvious way)
+
+* "How much sun reaches this spot" is baked as plain direct sunlight on a copy of each mesh whose shading
+  direction points straight at the sun, then divided by full sun. Blender's own SHADOW bake looks like the
+  obvious tool but is a ratio that also contains bounced light, and it turns into noise on glass and metal.
+* While a surface is being baked it is plain white and matt for the bake itself; shadows and bounces still
+  see the real materials. Cycles can only report "light falling on" a surface with some matt colour at that
+  spot, so leaf cards (see-through at the corners), bare metal and see-through glass got none before.
+* Leaf cards are turned to face the sun for the sun measurement: the result is how much sun gets through the
+  crown to each leaf, whichever way the card faces.
+
+### Light for things that move
+
+Cats, pigeons, loose things, weeds and grass have no light map. They read one small picture of the light that
+reaches the ground (`ground_light.webp`, made by `tools/pack.mjs` from the ground tiles). Two things follow
+from the ground being lit correctly:
+
+* Ground that is sealed off (under a building, under the slab of a landing) is black. The packer lets such
+  ground borrow the light of the nearest ground that sees the sky, so a weed against a wall and a cat on a
+  landing are lit like their surroundings.
+* The ground under a parked car is nearly dark, and a cat on the roof of that car sits in the open. Anything
+  that stands above the ground (`GroundLight.sample` takes the height) takes its light from the ground round
+  about: the brightest of it for the sky, the ground on the sunny side for the sun.
+
+### Glass
+
+`glass_car` and `glass_lamp` carry `"clear"` in their description: the share of light that passes. Cycles
+lets that much sun and sky into the cabin (the car interiors are baked like everything else), and the game
+draws those panes see-through, with the reflection on top. House glass has no `clear`: it is a dark room or
+a curtain behind a mirror.
+
+### Reflections
+
+Nothing to build: `planReflections` (in `src/engine/reflections.ts`) finds the parked cars from the `car`
+points of interest and the house walls from the glass in them. A new kind of shiny thing only needs a
+material with low roughness; plain metals near the ground pick up the nearest wall's picture by themselves.
+Entrance doors have glass down to 11 cm above the landing on purpose: it is where a cat sees itself.
 
 To try out a change to collision shapes without waiting for a bake: `build_estate`, then
 `export_collision`, then copy `build/export/estate/collision.*` to `public/assets/estate/` and run
