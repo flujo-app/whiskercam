@@ -2,8 +2,9 @@
 
   run.py -- build_cat [--samples N] [--faces N] [--only GROUPS] [--blend]
 
-GROUPS (comma separated, default all): bare, fur, coats, poses, deform, catcam
+GROUPS (comma separated, default all): bare, fur, coats, poses, deform, catcam, mouth
 Writes build/export/cats/ (cat.glb + pictures) and build/stage/cat/ (check pictures).
+"mouth" renders the head close up with the mouth closed and in the game's hiss (mouth_closed_*, mouth_hiss_*).
 """
 import argparse
 import json
@@ -33,7 +34,15 @@ VIEWS = {
     "threequarter": (42.0, 16.0, 1.6, (0.0, -0.05, 0.16), 70.0),
     "face": (20.0, 6.0, 0.62, (0.0, 0.209, 0.256), 70.0),
     "profile": (90.0, 3.0, 0.55, (0.0, 0.200, 0.255), 70.0),
+    # close-ups of the head (what the player sees of a rival in a paw fight)
+    "face_close": (14.0, 5.0, 0.30, (0.0, 0.228, 0.262), 70.0),
+    "front_close": (0.0, 4.0, 0.30, (0.0, 0.228, 0.262), 70.0),
+    "profile_close": (90.0, 2.0, 0.30, (0.0, 0.222, 0.262), 70.0),
+    "threeq_close": (42.0, 12.0, 0.32, (0.0, 0.222, 0.262), 70.0),
 }
+
+# the game's hiss: jaw bone turned -0.3 rad about its own X (see catmoves.ts, T[CH.jaw])
+HISS_JAW = -0.3
 
 
 def log(*a):
@@ -264,6 +273,30 @@ def deform_shots(sc, cat: C.Cat, samples: int) -> None:
     cat.body.material_slots[0].link = "DATA"
 
 
+def mouth_shots(sc, cat: C.Cat, samples: int) -> None:
+    """The mouth closed and in the game's hiss (jaw at HISS_JAW), close up from the front and in profile:
+    bare skin, clay (shape only) and with the fur preview grown on the posed body."""
+    views = ("front_close", "profile_close", "threeq_close")
+    hiss = {"rot": {"jaw": (math.degrees(HISS_JAW), 0.0, 0.0)}}
+    for label, pose in (("closed", None), ("hiss", hiss)):
+        C.apply_pose(cat.rig, pose)
+        for v in views:
+            shot(sc, f"mouth_{label}_{v}", cat.rig, v, samples)
+        fur = C.fur_preview(cat, "tabby", geo.collection("cat"), posed=True)
+        for v in views:
+            shot(sc, f"mouth_{label}_fur_{v}", cat.rig, v, samples)
+        bpy.data.objects.remove(fur)
+    # the shape alone, open
+    clay = C.body_material("cat_clay", None, None)
+    clay.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.45, 0.43, 0.41, 1.0)
+    cat.body.material_slots[0].link = "OBJECT"
+    cat.body.material_slots[0].material = clay
+    C.apply_pose(cat.rig, hiss)
+    shot(sc, "mouth_hiss_clay_threeq_close", cat.rig, "threeq_close", samples)
+    cat.body.material_slots[0].link = "DATA"
+    C.apply_pose(cat.rig, None)
+
+
 def catcam_shot(sc, cat: C.Cat, samples: int) -> None:
     """The player's view: collar camera 2 cm in front of the throat, looking forward and a little down."""
     C.apply_pose(cat.rig, C.POSES["walk"])
@@ -301,7 +334,7 @@ def main(args: list[str]) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--samples", type=int, default=40)
     ap.add_argument("--faces", type=int, default=3500)
-    ap.add_argument("--only", default="bare,fur,coats,poses,deform,catcam")
+    ap.add_argument("--only", default="bare,fur,coats,poses,deform,catcam,mouth")
     ap.add_argument("--views", default="side,front,back,top,threequarter,face,profile")
     ap.add_argument("--blend", action="store_true", help="save the scene to the scratch .blend for debugging")
     ap.add_argument("--clay", action="store_true", help="plain grey body in the bare views (to judge the shape)")
@@ -346,6 +379,8 @@ def main(args: list[str]) -> None:
         deform_shots(sc, cat, opt.samples)
     if "catcam" in groups:
         catcam_shot(sc, cat, opt.samples)
+    if "mouth" in groups:
+        mouth_shots(sc, cat, opt.samples)
     if "coats" in groups:
         coats_lineup(sc, cat, opt.samples)
     if "fur" in groups:

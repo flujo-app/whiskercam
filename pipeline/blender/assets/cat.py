@@ -10,6 +10,11 @@ Layout (metres, Blender Z up, the cat faces +Y, paws on z = 0, the cat's right s
             remeshed to even quads with QuadriFlow (the head is magnified first so it gets more
             detail), then refined around the eyes, muzzle and paws and snapped back onto the
             exact surface.
+  mouth     the body is cut open along the lip line (cut_mouth): the upper lip stays on the head
+            bone, the lower lip goes with "jaw". Closed, the two lips lie on top of each other (a
+            closed mouth, the upside-down Y under the nose); when the jaw turns they part. The inside
+            (lining, tongue, teeth) is part of CatEyes, hung on both lips and hidden in the head
+            when closed; its colours sit in the unused corners of cat_eyes.png (MOUTH_PATCH).
   rig       "CatRig" with the bone names and axes the game expects. Every bone's local X axis
             points to world +X, so a rotation about local X always bends in the side view.
             Positive rotation about X swings the far end of a bone forwards (towards +Y) /
@@ -67,6 +72,11 @@ def hdir(v) -> tuple:
 def head_local(P: np.ndarray) -> np.ndarray:
     """World points -> the head's own layout (inverse of hd)."""
     return (P - HEAD_PIVOT - HEAD_OFF) @ HEAD_R + HEAD_PIVOT
+
+
+def hd_arr(P: np.ndarray) -> np.ndarray:
+    """hd() for an (N, 3) array of head-layout points."""
+    return (np.asarray(P, float) - HEAD_PIVOT) @ HEAD_R.T + HEAD_PIVOT + HEAD_OFF
 TAIL_DIR = np.array((0.0, -math.cos(math.radians(16.0)), -math.sin(math.radians(16.0))))
 TAIL_LEN = 0.28
 
@@ -443,12 +453,13 @@ class EyeCut(Prim):
         A, r, _, _ = self.angular(P)
         ap = (A - 1.0) * min(self.tha, self.thb) * np.maximum(r, 1e-4)   # > 0 outside the aperture
         if self.mode == "lid":
-            shell = np.maximum(r - (self.Re + 0.0026), (self.Re - 0.002) - r)
+            shell = np.maximum(r - (self.Re + EYE_LID), (self.Re - 0.002) - r)
             return np.maximum(shell, -ap)
-        return np.maximum.reduce([ap, (self.Re - 0.0008) - r, r - (self.Re + 0.02)])
+        # (the opening only reaches a little way out: further, it would notch the bridge of the nose)
+        return np.maximum.reduce([ap, (self.Re - 0.0008) - r, r - (self.Re + 0.009)])
 
     def bounds(self):
-        R = self.Re + 0.021
+        R = self.Re + 0.010
         return self.E - R, self.E + R
 
 
@@ -480,14 +491,34 @@ TORSO = [
 ]
 
 # eyes
-EYE_R = 0.0105
-EYE_C = hd((0.0178, 0.2325, 0.2838))      # right eye centre
-EYE_GAZE = (0.21, 0.975, 0.06)            # right eye axis (x mirrored on the left)
-EYE_OPEN = (50.0, 38.0, 8.0)              # aperture half-angles (horizontal, vertical), tilt
+EYE_R = 0.0105                            # a real cat's eyeball is about 21 mm across
+EYE_C = hd((0.0173, 0.2318, 0.2838))      # right eye centre
+EYE_GAZE = (0.15, 0.985, 0.05)            # right eye axis (x mirrored on the left): cats look straight ahead
+EYE_OPEN = (46.0, 31.0, 10.0)             # aperture half-angles (horizontal, vertical), tilt: almond, outer corner up
+EYE_LID = 0.0014                          # how far the lids stand off the eyeball (thin, not goggles)
 
 
 def eye(side: float):
     return np.array(_side(EYE_C, side)), _n(hdir((EYE_GAZE[0] * side, EYE_GAZE[1], EYE_GAZE[2])))
+
+
+# mouth (head layout). The lip line of the right half, from the middle (under the philtrum) to the corner of
+# the mouth: along the lower edge of the whisker pad, then back under the eye. Mirrored for the left half.
+LIP_HALF = [
+    (0.0000, 0.2580, 0.2573),     # foot of the philtrum: the lips part here (the fork of the upside-down Y)
+    (0.0025, 0.2574, 0.2562),
+    (0.0050, 0.2560, 0.2545),
+    (0.0075, 0.2537, 0.2527),
+    (0.0095, 0.2505, 0.2516),
+    (0.0110, 0.2465, 0.2505),
+    (0.0120, 0.2420, 0.2500),
+    (0.0127, 0.2375, 0.2496),
+    (0.0132, 0.2335, 0.2493),
+    (0.0137, 0.2297, 0.2492),     # corner of the mouth, about under the middle of the eye
+]
+LIP_STEP = 0.0009            # spacing of the points along the lip line (and of the cut)
+LIP_GROOVE = (0.00042, 0.0010)   # radius and blend of the crease along the closed lips
+PHILTRUM = (0.0, 0.2604, 0.2659)  # top of the philtrum, just under the nose leather
 
 
 class Shape:
@@ -502,6 +533,9 @@ class Shape:
         self.eyes: dict[float, EyeCut] = {}
         self.ear_hollows: list[Ear] = []
         self.mouth: Tube | None = None
+        self.lip: np.ndarray | None = None        # the lip line (on the surface before the crease), left to right
+        self.lip_n: np.ndarray | None = None
+        self.philtrum: np.ndarray | None = None
         self.ground_k = 0.0015
         self._build()
 
@@ -614,21 +648,36 @@ class Shape:
         # soft throat filling the angle between the lower jaw and the neck
         A(Ellipsoid((0, 0.199, 0.229), (0.0205, 0.028, 0.0185), label="torso", rig="torso", k=0.014))
         for s in (-1.0, 1.0):
-            A(Ellipsoid((s * 0.0210, 0.212, 0.263), (0.0175, 0.025, 0.0215), label="cheek", rig="head", k=0.009))
-            A(Ellipsoid((s * 0.0185, 0.188, 0.253), (0.0190, 0.022, 0.0245), label="cheek", rig="head", k=0.010))
-            # zygomatic arch: widens the face at eye level, from under the eye back towards the ear
-            A(Ellipsoid((s * 0.0275, 0.214, 0.2765), (0.0095, 0.021, 0.0105), yaw_frame(s * 12),
+            A(Ellipsoid((s * 0.0205, 0.212, 0.263), (0.0170, 0.025, 0.0210), label="cheek", rig="head", k=0.009))
+            A(Ellipsoid((s * 0.0175, 0.190, 0.2535), (0.0170, 0.0215, 0.0235), label="cheek", rig="head", k=0.010))
+            # zygomatic arch: widens the face at eye level, from under the eye back towards the ear; it reaches
+            # forwards past the outer corner of the eye, so the eyes sit inside the face, not on its edge
+            A(Ellipsoid((s * 0.0282, 0.2185, 0.2765), (0.0098, 0.0225, 0.0108), yaw_frame(s * 14),
                         label="cheek", rig="head", k=0.008))
-        A(Ellipsoid((0, 0.240, 0.2620), (0.0150, 0.0145, 0.0125), label="muzzle", rig="head", k=0.006))
+            # where the whisker pad runs back into the cheek above the corner of the mouth (no step between them)
+            A(Ellipsoid((s * 0.0150, 0.2370, 0.2592), (0.0082, 0.0115, 0.0082), yaw_frame(s * 10),
+                        label="cheek", rig="head", k=0.007))
+        A(Ellipsoid((0, 0.240, 0.2630), (0.0150, 0.0145, 0.0122), label="muzzle", rig="head", k=0.006))
+        # whisker pads: two rounded pads either side of the philtrum, their lower edges are the upper lips
         for s in (-1.0, 1.0):
-            A(Ellipsoid((s * 0.0086, 0.2505, 0.2602), (0.0099, 0.0100, 0.0090), yaw_frame(-s * 25),
+            A(Ellipsoid((s * 0.0075, 0.2500, 0.2598), (0.0086, 0.0090, 0.0085), yaw_frame(-s * 20),
                         label="muzzle", rig="head", k=0.004))
-        A(RoundCone((0, 0.231, 0.293), (0, 0.2585, 0.2738), 0.0088, 0.0060, label="bridge", rig="head", k=0.005))
-        A(Ellipsoid((0, 0.2632, 0.2688), (0.0068, 0.0042, 0.0050), label="nose", rig="head", k=0.002))
-        # lower jaw: small chin set back behind the nose
-        # (narrow, tucked under the cheeks; only the small chin shows in front)
-        A(Ellipsoid((0, 0.2410, 0.2440), (0.0058, 0.0066, 0.0050), label="chin", rig="jaw", k=0.006))
-        A(Ellipsoid((0, 0.2150, 0.2450), (0.0105, 0.0240, 0.0075), label="chin", rig="jaw", k=0.012))
+        # upper lip in the middle: a short philtrum straight down from the nose leather to where the lips part
+        A(Ellipsoid((0, 0.2545, 0.2622), (0.0050, 0.0066, 0.0052), label="muzzle", rig="head", k=0.004))
+        A(RoundCone((0, 0.231, 0.293), (0, 0.2555, 0.2750), 0.0088, 0.0060, label="bridge", rig="head", k=0.005))
+        # nose leather: small (about 11 x 7 mm), flat-fronted, sitting on the end of the bridge
+        A(Ellipsoid((0, 0.2606, 0.2697), (0.0056, 0.0035, 0.0037), label="nose", rig="head", k=0.0055))
+        # lower jaw: carries the lower lip forwards to meet the upper lip under the whisker pads (the lips
+        # close along LIP_HALF); its middle rises between the pads to the foot of the philtrum. Tucked under
+        # the pads, so from the front only a small chin shows, a little behind the nose
+        A(Ellipsoid((0, 0.2495, 0.2505), (0.0068, 0.0076, 0.0074), label="chin", rig="jaw", k=0.005))
+        # front of the lower jaw, about 20 mm across at the canines (wide enough to hide the upper canines when
+        # the mouth is shut), still narrower than the whisker pads above it
+        A(Ellipsoid((0, 0.2468, 0.2486), (0.0108, 0.0085, 0.0066), label="chin", rig="jaw", k=0.006))
+        A(Ellipsoid((0, 0.2290, 0.2472), (0.0120, 0.0230, 0.0070), label="chin", rig="jaw", k=0.010))
+        # fullness of the forehead between and above the eyes: with the bridge running out below it, it gives
+        # the gentle dip (the stop) a cat's profile has at eye level
+        A(Ellipsoid((0, 0.2375, 0.2980), (0.0120, 0.0050, 0.0065), label="head", rig="head", k=0.007))
         # brow ridges (subtle)
         for s in (-1.0, 1.0):
             A(Ellipsoid((s * 0.0165, 0.2315, 0.2970), (0.0105, 0.0078, 0.0046), yaw_frame(-s * 15),
@@ -657,14 +706,39 @@ class Shape:
         tha, thb, tilt = EYE_OPEN
         for s in (-1.0, 1.0):
             E, g = eye(s)
-            A(EyeCut(E, g, EYE_R, s, tha, thb, tilt, "lid", k=0.0015))
+            A(EyeCut(E, g, EYE_R, s, tha, thb, tilt, "lid", k=0.0022))
         for s in (-1.0, 1.0):
             E, g = eye(s)
             self.eyes[s] = A(EyeCut(E, g, EYE_R, s, tha, thb, tilt, "open", label="socket", k=0.0008))
-        # mouth line: painted only (a carved groove read as an open beak); kept for the painter and weights
-        half = [(0.0155, 0.2405, 0.2475), (0.0120, 0.2490, 0.2482), (0.0070, 0.2565, 0.2492), (0.0, 0.2605, 0.2505)]
-        pts = [hd((-x, y, z)) for x, y, z in half] + [hd((x, y, z)) for x, y, z in reversed(half[:-1])]
-        self.mouth = Tube(pts, 0.0007, label="mouth", k=0.0012, op="sub")
+        # the lip line: where the upper lip meets the lower lip. The body is cut open along it (see cut_mouth),
+        # so here it only gets a shallow crease, like closed lips
+        self.lip, self.lip_n = self._lip_line()
+        self.mouth = Tube(self.lip, LIP_GROOVE[0], label="mouth", k=LIP_GROOVE[1], op="sub")
+        if not self.proxy:
+            A(self.mouth)
+            # philtrum: the short groove from the nose leather down to the lips (the stem of the upside-down Y)
+            a, b = hd_arr([PHILTRUM])[0], self.lip[len(self.lip) // 2]
+            ph = self.project(a + (b - a) * np.linspace(0.0, 1.0, 7)[:, None], iters=5)
+            self.philtrum = ph
+            A(Tube(ph, 0.00030, label="mouth", k=0.0007, op="sub"))
+
+    def _lip_line(self) -> tuple[np.ndarray, np.ndarray]:
+        """LIP_HALF mirrored into one line from the left corner of the mouth to the right one, laid onto the
+        surface (as it is before the crease is cut), evenly spaced. Returns points and surface normals."""
+        half = np.asarray(LIP_HALF, float)
+        knots = np.concatenate([half[::-1] * np.array((-1.0, 1.0, 1.0)), half[1:]])
+        t = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(knots, axis=0), axis=1))])
+        cols = [_spline_table(t, knots[:, i], 600)[1] for i in range(3)]
+        P = self.project(hd_arr(np.stack(cols, 1)), iters=6)
+        for _ in range(2):
+            seg = np.linalg.norm(np.diff(P, axis=0), axis=1)
+            s = np.concatenate([[0.0], np.cumsum(seg)])
+            m = max(int(round(s[-1] / LIP_STEP)), 8)
+            st = np.linspace(0.0, s[-1], m + 1)
+            P = np.stack([np.interp(st, s, P[:, i]) for i in range(3)], 1)
+            P = self.project(P, iters=4)
+        g = self.grad(P)
+        return P, g / np.maximum(np.linalg.norm(g, axis=1), 1e-9)[:, None]
 
     # ------------------------------------------------------------------ evaluation
     def sdf(self, P: np.ndarray) -> np.ndarray:
@@ -994,6 +1068,9 @@ def build_body_mesh(shape: Shape, coll, target_faces: int = 3500) -> bpy.types.O
             E, _ = eye(s)
             m |= np.linalg.norm(co - E, axis=1) < 0.0145
         m |= np.linalg.norm(co - np.array(hd((0.0, 0.256, 0.254))), axis=1) < 0.0165
+        # the whole lip line and the chin (the mouth opens there)
+        m |= _polyline_closest(co, shape.lip)[0] < 0.0065
+        m |= np.linalg.norm(co - np.array(hd((0.0, 0.246, 0.2455))), axis=1) < 0.010
         return m
 
     def paws(co):
@@ -1025,6 +1102,237 @@ def build_body_mesh(shape: Shape, coll, target_faces: int = 3500) -> bpy.types.O
     log(f"body mesh: {len(me.vertices)} verts, {len(me.polygons)} faces, {tris} triangles "
         f"(refined {nf} head + {nf2} paw faces) in {time.time() - t0:.1f}s")
     return obj
+
+
+def _polyline_closest(P: np.ndarray, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Distance from each point to a 3D polyline, and where along it (0..1 by length) the closest point is."""
+    pts = np.asarray(pts, float)
+    L = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    acc = np.concatenate([[0.0], np.cumsum(L)])
+    best = np.full(len(P), 1e9)
+    s = np.zeros(len(P))
+    for k in range(len(pts) - 1):
+        a = pts[k]
+        ba = pts[k + 1] - a
+        t = np.clip(((P - a) @ ba) / max(float(ba @ ba), 1e-18), 0.0, 1.0)
+        d = np.linalg.norm(P - a - t[:, None] * ba, axis=1)
+        m = d < best
+        best[m] = d[m]
+        s[m] = acc[k] + t[m] * L[k]
+    return best, s / acc[-1]
+
+
+# the cut along the lips: faces this close to the lip line are rebuilt as rows that follow it exactly
+LIP_BAND = 0.0021
+LIP_ROW = 0.0009
+
+
+def lip_rows(shape: Shape) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The lip line as cut: points at the bottom of the crease, the direction across the line that points up
+    (towards the upper lip) along the skin, and u in -1..1 (left corner .. middle .. right corner)."""
+    P0, n0 = shape.lip, shape.lip_n
+    # bottom of the crease: walk in along the normal until the surface (with the crease) is reached
+    lo = np.zeros(len(P0))
+    hi = np.full(len(P0), 0.003)
+    for _ in range(22):
+        mid = 0.5 * (lo + hi)
+        out = shape.sdf(P0 - n0 * mid[:, None]) > 0.0
+        lo = np.where(out, mid, lo)
+        hi = np.where(out, hi, mid)
+    C = P0 - n0 * (0.5 * (lo + hi))[:, None]
+    t = np.gradient(C, axis=0)
+    t /= np.maximum(np.linalg.norm(t, axis=1), 1e-12)[:, None]
+    up = np.cross(n0, t)
+    up /= np.maximum(np.linalg.norm(up, axis=1), 1e-12)[:, None]
+    up *= np.where(up @ np.asarray(hdir((0.0, 0.0, 1.0))) < 0, -1.0, 1.0)[:, None]
+    s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(C, axis=0), axis=1))])
+    return C, up, 2.0 * s / s[-1] - 1.0
+
+
+def _zip(bm, A: list, B: list, shared_start: bool, shared_end: bool, made: list,
+         sA: np.ndarray | None = None, sB: np.ndarray | None = None) -> None:
+    """Fill the strip between two vertex chains with triangles: by default always taking the shorter diagonal;
+    given each chain's position along the strip (sA, sB), always advancing the chain that is behind (this never
+    folds the strip over)."""
+    def tri(a, b, c):
+        if a is b or b is c or a is c:
+            return
+        try:
+            f = bm.faces.new((a, b, c))
+        except ValueError:
+            return
+        f.smooth = True
+        made.append(f)
+
+    def d(a, b):
+        return (a.co - b.co).length
+
+    p, q = len(A) - 1, len(B) - 1
+    i = j = 0
+    if shared_start:
+        tri(A[0], A[1], B[1])
+        i = j = 1
+    ei, ej = (p - 1, q - 1) if shared_end else (p, q)
+    def take_a():
+        if sA is not None and sB is not None:
+            return sA[i + 1] < sB[j + 1]
+        return d(A[i + 1], B[j]) < d(A[i], B[j + 1])
+
+    while i < ei or j < ej:
+        if j >= ej or (i < ei and take_a()):
+            tri(A[i], A[i + 1], B[j])
+            i += 1
+        else:
+            tri(A[i], B[j + 1], B[j])
+            j += 1
+    if shared_end:
+        tri(A[i], A[p], B[j])
+
+
+def cut_mouth(shape: Shape, obj: bpy.types.Object) -> None:
+    """Open the body along the lip line: the faces near it are replaced by rows that follow the line exactly,
+    and the line itself is doubled (one copy for the upper lip, one for the lower lip; only the two corners of
+    the mouth stay shared). Closed, the two copies lie on top of each other; when the jaw turns the lower one
+    goes with it. The vertices of the two copies are marked in the integer attributes 'wc_lip_up' / 'wc_lip_lo'
+    (1 + their place along the line, left to right)."""
+    t0 = time.time()
+    C, UP, u = lip_rows(shape)
+    n = len(C)
+    me = obj.data
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    # (adding a layer invalidates every vertex reference taken before it, so first)
+    lay_up = bm.verts.layers.int.new("wc_lip_up")
+    lay_lo = bm.verts.layers.int.new("wc_lip_lo")
+    bm.verts.ensure_lookup_table()
+    co = np.array([v.co[:] for v in bm.verts])
+    near = _polyline_closest(co, C)[0] < LIP_BAND
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if any(near[v.index] for v in f.verts)], context="FACES")
+    # the hole must have one clean outline: widen it where it touches itself at a single vertex
+    for _ in range(8):
+        cnt: dict = {}
+        for e in bm.edges:
+            if e.is_boundary:
+                for v in e.verts:
+                    cnt[v] = cnt.get(v, 0) + 1
+        bad = [v for v, c in cnt.items() if c != 2]
+        if not bad:
+            break
+        bmesh.ops.delete(bm, geom=list({f for v in bad for f in v.link_faces}), context="FACES")
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+    adj: dict = {}
+    for e in bm.edges:
+        if e.is_boundary:
+            a, b = e.verts
+            adj.setdefault(a, []).append(b)
+            adj.setdefault(b, []).append(a)
+    start = next(iter(adj))
+    loop, prev, cur = [start], None, start
+    while True:
+        nxt = adj[cur][0] if adj[cur][0] is not prev else adj[cur][1]
+        if nxt is start:
+            break
+        loop.append(nxt)
+        prev, cur = cur, nxt
+        if len(loop) > len(adj):
+            break
+    if len(loop) != len(adj):
+        raise RuntimeError(f"the cut along the lips is not one hole ({len(loop)} of {len(adj)} outline vertices)")
+    # split the outline at the two ends of the lip line into the part above it and the part below it: where
+    # the outline crosses from above the line to below it (measured across the line, along the skin)
+    lc = np.array([v.co[:] for v in loop])
+    m = len(loop)
+    _, sl = _polyline_closest(lc, C)
+    near_pt = _polyline_closest_point(lc, C)
+    k_up = np.clip(np.round(sl * (n - 1)).astype(int), 0, n - 1)
+    side = np.einsum("ij,ij->i", lc - near_pt, UP[k_up])
+    flips = [k for k in range(m) if (side[k] >= 0) != (side[(k + 1) % m] >= 0)]
+
+    def pick(k):
+        return k if abs(side[k]) <= abs(side[(k + 1) % m]) else (k + 1) % m
+
+    if len(flips) < 2:
+        raise RuntimeError("the cut along the lips has no clear upper and lower side")
+    end_s = [0.5 * (sl[k] + sl[(k + 1) % m]) for k in flips]
+    i0 = pick(flips[int(np.argmin(end_s))])          # crossing at the left corner of the mouth
+    i1 = pick(flips[int(np.argmax(end_s))])          # and at the right one
+    if len(flips) != 2:
+        log(f"mouth cut: the outline crosses the lip line {len(flips)} times; using the two at the corners")
+    fwd = [loop[(i0 + k) % m] for k in range((i1 - i0) % m + 1)]
+    bwd = [loop[(i0 - k) % m] for k in range((i0 - i1) % m + 1)]
+
+    def height(chain):
+        """how far above the lip line (head up) this part of the outline lies, on average"""
+        P = np.array([v.co[:] for v in chain[1:-1]])
+        return float(np.mean(head_local(P)[:, 2] - head_local(_polyline_closest_point(P, C))[:, 2]))
+
+    upper, lower = (fwd, bwd) if height(fwd) > height(bwd) else (bwd, fwd)
+    # the new rows: the line itself twice (upper and lower lip) and one row either side of it
+    s = (u + 1.0) * 0.5 * np.sum(np.linalg.norm(np.diff(C, axis=0), axis=1))
+    taper = np.clip(np.minimum(s, s[-1] - s) / 0.0025, 0.0, 1.0) ** 0.7
+    Rp = shape.project(C + UP * (LIP_ROW * taper)[:, None])
+    Rm = shape.project(C - UP * (LIP_ROW * taper)[:, None])
+    c0, c1 = bm.verts.new(C[0]), bm.verts.new(C[-1])
+    up0 = [c0] + [bm.verts.new(C[i]) for i in range(1, n - 1)] + [c1]
+    lo0 = [c0] + [bm.verts.new(C[i]) for i in range(1, n - 1)] + [c1]
+    up1 = [c0] + [bm.verts.new(Rp[i]) for i in range(1, n - 1)] + [c1]
+    lo1 = [c0] + [bm.verts.new(Rm[i]) for i in range(1, n - 1)] + [c1]
+    for i, v in enumerate(up0):
+        v[lay_up] = i + 1
+    for i, v in enumerate(lo0):
+        v[lay_lo] = i + 1
+    # where each outline vertex lies along the lip line (metres; beyond the corners: how far beyond), made
+    # never to go backwards
+    t0_, t1_ = _n(C[1] - C[0]), _n(C[-1] - C[-2])
+
+    def along(chain):
+        Pc = np.array([v.co[:] for v in chain])
+        _, fr = _polyline_closest(Pc, C)
+        sa = fr * s[-1]
+        sa = np.where(fr <= 1e-6, (Pc - C[0]) @ t0_, sa)
+        sa = np.where(fr >= 1 - 1e-6, s[-1] + (Pc - C[-1]) @ t1_, sa)
+        return np.maximum.accumulate(sa)
+
+    made: list = []
+    for A_, B_, sh in ((upper, up1, False), (up1, up0, True), (lower, lo1, False), (lo1, lo0, True)):
+        if sh:
+            _zip(bm, A_, B_, sh, sh, made)
+        else:
+            _zip(bm, A_, B_, sh, sh, made, along(A_), s)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    # every new face must face out of the body (a fold would show as a dent the mouth parts poke through)
+    cc = np.array([f.calc_center_median()[:] for f in made])
+    nn = np.array([f.normal[:] for f in made])
+    gg = shape.grad(cc)
+    gg /= np.maximum(np.linalg.norm(gg, axis=1), 1e-9)[:, None]
+    folded = int((np.einsum("ij,ij->i", gg, nn) < -0.2).sum())
+    open_edges = sum(1 for e in bm.edges if e.is_boundary)
+    bad_edges = sum(1 for e in bm.edges if len(e.link_faces) > 2 or not e.link_faces)
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    log(f"mouth cut: lip line {n} points ({(s[-1]) * 1000:.0f} mm), outline {m} vertices, {len(made)} new faces "
+        f"({folded} folded), {open_edges} open edges (expect {2 * (n - 1)}), {bad_edges} broken edges, "
+        f"{time.time() - t0:.1f}s")
+    if open_edges != 2 * (n - 1) or bad_edges:
+        raise RuntimeError("the cut along the lips left the body broken")
+
+
+def _polyline_closest_point(P: np.ndarray, pts: np.ndarray) -> np.ndarray:
+    """The closest point on a polyline for each point."""
+    pts = np.asarray(pts, float)
+    best = np.full(len(P), 1e9)
+    out = np.zeros_like(P)
+    for k in range(len(pts) - 1):
+        a = pts[k]
+        ba = pts[k + 1] - a
+        t = np.clip(((P - a) @ ba) / max(float(ba @ ba), 1e-18), 0.0, 1.0)
+        q = a + t[:, None] * ba
+        d = np.linalg.norm(P - q, axis=1)
+        m = d < best
+        best[m] = d[m]
+        out[m] = q[m]
+    return out
 
 
 def _xatlas_uvs(me: bpy.types.Mesh, P: np.ndarray, res: int = 1024, padding: int = 4) -> np.ndarray | None:
@@ -1225,8 +1533,71 @@ def _eval_recipe(rec, P) -> dict[str, np.ndarray]:
     return _chain_proj(P, rec[1], rec[2], plane_yz=rec[3])
 
 
-def compute_weights(shape: Shape, me: bpy.types.Mesh, tau: float = 0.0022, smooth_iters: int = 4):
-    """Returns (bone names, (N, B) weights, max 4 per vertex, normalised)."""
+def read_lips(me: bpy.types.Mesh, drop: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    """Vertex indices of the upper and the lower copy of the lip line (left to right), see cut_mouth."""
+    out = []
+    for name in ("wc_lip_up", "wc_lip_lo"):
+        a = me.attributes[name]
+        vals = np.empty(len(me.vertices), np.int32)
+        a.data.foreach_get("value", vals)
+        idx = np.nonzero(vals > 0)[0]
+        out.append(idx[np.argsort(vals[idx])])
+        if drop:
+            me.attributes.remove(me.attributes[name])
+    return out[0], out[1]
+
+
+def jaw_share(V: np.ndarray, E: np.ndarray, lips: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """How much of each vertex's head weight belongs to the jaw (0..1), and which vertices are the lips.
+
+    Each vertex goes with the lip it is nearer to, measured along the skin: the cut keeps the two lips apart,
+    so a walk from the upper lip to the lower one has to go round a corner of the mouth. So the skin above
+    the lips (whisker pads, however far they overhang) follows the head, the chin and the underside of the
+    jaw follow the jaw, and the corners of the mouth share the movement half and half. Behind the corners the
+    jaw's share fades out towards the jaw joint, which hardly moves."""
+    import heapq
+
+    up_idx, lo_idx = lips
+    Ph = head_local(V)
+    Ch = head_local(V[up_idx])
+    L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1)
+    nbr: list[list[tuple[int, float]]] = [[] for _ in range(len(V))]
+    for (a, b), l in zip(E, L):
+        nbr[a].append((int(b), float(l)))
+        nbr[b].append((int(a), float(l)))
+
+    def walk(seeds):
+        """distance along the mesh from the nearest seed"""
+        dist = np.full(len(V), np.inf)
+        heap = [(0.0, int(i)) for i in seeds]
+        for _, i in heap:
+            dist[i] = 0.0
+        heapq.heapify(heap)
+        while heap:
+            d, v = heapq.heappop(heap)
+            if d > dist[v]:
+                continue
+            for w, l in nbr[v]:
+                nd = d + l
+                if nd < dist[w]:
+                    dist[w] = nd
+                    heapq.heappush(heap, (nd, w))
+        return dist
+
+    dU = walk(up_idx[1:-1])
+    dL = walk(lo_idx[1:-1])
+    y_corner = 0.5 * (Ch[0, 1] + Ch[-1, 1])
+    y_tmj = float(head_local(np.array([JAW["tmj"]]))[0, 1])
+    # (and never above the lips' height: the forehead may be nearer the lower lip round the back of the cheek)
+    J = ss(-0.0025, 0.0025, np.nan_to_num(dU - dL)) * ss(y_tmj + 0.003, y_corner, Ph[:, 1]) * ss(0.2680, 0.2600, Ph[:, 2])
+    J[up_idx[[0, -1]]] = 0.5
+    crisp = np.minimum(dU, dL) < 0.003
+    return J, crisp
+
+
+def compute_weights(shape: Shape, me: bpy.types.Mesh, tau: float = 0.0022, smooth_iters: int = 4,
+                    lips: tuple[np.ndarray, np.ndarray] | None = None):
+    """Returns (bone names, (N, B) weights, max 4 per vertex, normalised). lips: see read_lips."""
     V, E = _mesh_arrays(me)
     names = [n for n in BONE_NAMES if n != "root"]
     col = {n: i for i, n in enumerate(names)}
@@ -1248,8 +1619,16 @@ def compute_weights(shape: Shape, me: bpy.types.Mesh, tau: float = 0.0022, smoot
             W[sel, col[bone]] += m[sel] * w
     # smooth over the mesh, but keep the lips sharp (upper lip = head, lower lip = jaw)
     lam = np.full(len(V), 0.5)
-    lips = (V[:, 1] > 0.228 + HEAD_OFF[1]) & (V[:, 2] < 0.262 + HEAD_OFF[2]) & (np.abs(V[:, 0]) < 0.024)
-    lam[lips] = 0.0
+    if lips is not None:
+        jh, jj = col["head"], col["jaw"]
+        J, crisp = jaw_share(V, E, lips)
+        hj = W[:, jh] + W[:, jj]
+        W[:, jj] = hj * J
+        W[:, jh] = hj * (1.0 - J)
+        lam[crisp] = 0.0
+    else:
+        near_lips = (V[:, 1] > 0.228 + HEAD_OFF[1]) & (V[:, 2] < 0.262 + HEAD_OFF[2]) & (np.abs(V[:, 0]) < 0.024)
+        lam[near_lips] = 0.0
     cnt = np.bincount(E.ravel(), minlength=len(V)).astype(float)
     for _ in range(smooth_iters):
         acc = np.zeros_like(W)
@@ -1336,6 +1715,349 @@ def build_eyes(coll) -> bpy.types.Object:
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = geo.bm_to_object(bm, "CatEyes", None, coll, smooth=True)
     return obj
+
+
+# =====================================================================================
+# inside of the mouth: lining, tongue and teeth. They are part of CatEyes (smooth and shiny, no fur; the game
+# draws every part that is not the body the same way) and take their colours from the corners of the eye
+# picture, which the round eye itself never uses. Built in the head's layout around the closed lips and hung
+# on the two copies of the lip line, so they open with the lips and are hidden inside the head when closed.
+# =====================================================================================
+
+MOUTH_PATCH = {"lining": (0.0, 0.0), "tongue": (0.875, 0.0), "teeth": (0.0, 0.875)}   # corner of cat_eyes.png
+PATCH_IN, PATCH_W = 0.0125, 0.1      # the part of each 0.125 x 0.125 corner that is used: offset, size
+MOUTH_BACK = 0.004                   # the back of the mouth lies this far behind the line between its corners
+# rows of the lining from the lip (0) to the back of the mouth (1)
+MOUTH_ROWS = (0.0, 0.035, 0.08, 0.14, 0.22, 0.34, 0.50, 0.68, 0.85, 1.0)
+TOOTH_EMBED = 0.0008                 # how deep each tooth sits in the gum
+# teeth of the right half (the left is mirrored): (mm along the lip line from the middle, depth behind the lip
+# in m, length incl. the part in the gum, radius along / across the row of teeth, backward curve, sides)
+UPPER_TEETH = (
+    (1.2, 0.0022, 0.0020, 0.00050, 0.00042, 0.05, 6),
+    (3.4, 0.0022, 0.0021, 0.00052, 0.00044, 0.05, 6),
+    (5.6, 0.0023, 0.0024, 0.00058, 0.00048, 0.08, 6),
+    (11.5, 0.0026, 0.0078, 0.00135, 0.00105, 0.18, 10),   # canine
+    (16.0, 0.0024, 0.0024, 0.00090, 0.00060, 0.0, 6),     # premolar
+    (19.5, 0.0024, 0.0030, 0.00140, 0.00060, 0.0, 6),     # carnassial
+)
+LOWER_TEETH = (
+    (1.0, 0.0024, 0.0017, 0.00045, 0.00038, 0.04, 6),
+    (3.0, 0.0024, 0.0018, 0.00047, 0.00040, 0.04, 6),
+    (5.0, 0.0025, 0.0019, 0.00050, 0.00042, 0.05, 6),
+    (8.6, 0.0026, 0.0062, 0.00118, 0.00095, 0.12, 10),    # canine
+    (15.5, 0.0024, 0.0024, 0.00090, 0.00060, 0.0, 6),
+    (18.5, 0.0024, 0.0026, 0.00120, 0.00060, 0.0, 6),
+)
+TONGUE = (0.0052, 0.0021, 0.15, 0.93)   # half width, height above the floor, from / to (fraction of the way back)
+
+
+def _patch_uv(name: str, pu: float, pv: float) -> tuple[float, float]:
+    ox, oy = MOUTH_PATCH[name]
+    return (ox + PATCH_IN + PATCH_W * float(np.clip(pu, 0.0, 1.0)), oy + PATCH_IN + PATCH_W * float(np.clip(pv, 0.0, 1.0)))
+
+
+class _Parts:
+    """Vertices (head layout), faces, a UV and a jaw share per vertex, and the body vertex whose weights a
+    vertex copies (-1: none)."""
+
+    def __init__(self):
+        self.P: list = []
+        self.UV: list = []
+        self.J: list = []
+        self.copy: list = []
+        self.F: list = []
+        self.group: list = []     # which piece each vertex belongs to (for the inside check)
+
+    def add(self, p, uv, j, copy=-1, group="lining") -> int:
+        self.P.append(np.asarray(p, float))
+        self.UV.append(uv)
+        self.J.append(float(j))
+        self.copy.append(int(copy))
+        self.group.append(group)
+        return len(self.P) - 1
+
+    def face(self, idx, facing) -> None:
+        """A polygon (repeated corners dropped) turned so that its front looks along `facing` (head layout)."""
+        out: list = []
+        for i in idx:
+            if i not in out:
+                out.append(i)
+        if len(out) < 3:
+            return
+        P = np.array([self.P[i] for i in out])
+        nrm = np.zeros(3)
+        for k in range(len(P)):                   # Newell's normal
+            nrm += np.cross(P[k], P[(k + 1) % len(P)])
+        if nrm @ np.asarray(facing, float) < 0:
+            out.reverse()
+        self.F.append(out)
+
+
+def _mouth_frame(Lh: np.ndarray):
+    """Everything the lining, tongue and teeth are laid out from: arc position u (-1..1) along the lip line,
+    how open each point is (0 at the corners), the plane of the closed lips (z = a + b y), and the way in from
+    each lip point to the back of the mouth."""
+    s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(Lh, axis=0), axis=1))])
+    u = 2.0 * s / s[-1] - 1.0
+    tau = np.sqrt(np.clip(1.0 - u * u, 0.0, 1.0))
+    # (fitted to the sides only: the middle of the lip line rises to the foot of the philtrum)
+    side = np.abs(u) > 0.35
+    a, b = np.linalg.lstsq(np.stack([np.ones(int(side.sum())), Lh[side, 1]], 1), Lh[side, 2], rcond=None)[0]
+    KL, KR = Lh[0], Lh[-1]
+    back = KL + (KR - KL) * ((u + 1.0) * 0.5)[:, None] - np.outer(MOUTH_BACK * (1.0 - u * u), (0.0, 1.0, 0.0))
+    d = back - Lh
+    d[:, 2] = 0.0
+    return s, u, tau, float(a), float(b), d
+
+
+def _rib(L0, d, tau, a, b, f, side):
+    """Point(s) of the lining at fraction f of the way in from the lip, on the upper (+1) or lower (-1) side:
+    up (down) quickly over the inner lip to the gum, then the palate (floor of the mouth)."""
+    p = np.array(L0, float) + np.asarray(d) * f
+    pz = a + b * p[..., 1]
+    if side > 0:
+        H = 0.0027 * ss(0.0, 0.10, f) + 0.0008 * ss(0.3, 0.9, f)
+    else:
+        H = 0.0021 * ss(0.0, 0.10, f) + 0.0003 * ss(0.3, 0.9, f)
+    p[..., 2] = pz + side * tau * H + (np.asarray(L0)[..., 2] - pz) * (1.0 - ss(0.0, 0.12, f))
+    return p
+
+
+def add_mouth_inside(cat: Cat, names: list[str], W: np.ndarray) -> None:
+    t0 = time.time()
+    up_idx, lo_idx = cat.lips
+    me = cat.body.data
+    Vb = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get("co", Vb)
+    Vb = Vb.reshape(-1, 3)
+    Lh = head_local(Vb[up_idx])
+    n = len(Lh)
+    s, u, tau, a, b, d = _mouth_frame(Lh)
+    parts = _Parts()
+    DOWN, UP, FWD = (0.0, 0.0, -1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)
+
+    # ---- lining: palate rows (upper lip -> back), three rows down the back of the throat, floor rows (back -> lower lip)
+    rows = []   # (positions, jaw share, v in the lining patch, body copy (upper / lower / none))
+    R = len(MOUTH_ROWS)
+    for r, f in enumerate(MOUTH_ROWS):
+        rows.append((_rib(Lh, d, tau, a, b, f, +1), 0.0, 0.45 * f, "up" if r < 2 else None))
+    top, bot = rows[-1][0], _rib(Lh, d, tau, a, b, 1.0, -1)
+    for k in (1, 2, 3):
+        q = k / 4.0
+        p = top * (1 - q) + bot * q
+        p[:, 1] -= 0.0025 * tau * math.sin(math.pi * q)
+        rows.append((p, q, 0.45 + 0.10 * q, None))
+    for r in range(R - 1, -1, -1):
+        f = MOUTH_ROWS[r]
+        rows.append((_rib(Lh, d, tau, a, b, f, -1), 1.0, 1.0 - 0.45 * f, "lo" if r < 2 else None))
+    corner = {0: parts.add(Lh[0], _patch_uv("lining", 0.0, 0.0), 0.5, up_idx[0], "lip"),
+              n - 1: parts.add(Lh[-1], _patch_uv("lining", 1.0, 0.0), 0.5, up_idx[-1], "lip")}
+    grid = []
+    for ri, (P, J, v, cp) in enumerate(rows):
+        line = []
+        lip_row = ri == 0 or ri == len(rows) - 1
+        for i in range(n):
+            if i in corner:
+                line.append(corner[i])
+                continue
+            src = up_idx[i] if cp == "up" else lo_idx[i] if cp == "lo" else -1
+            line.append(parts.add(P[i], _patch_uv("lining", (u[i] + 1) * 0.5, v), J, src, "lip" if lip_row else "lining"))
+        grid.append(line)
+    n_pal = R - 1                  # bands 0 .. R-2 are palate, then the throat, then the floor
+    for r in range(len(grid) - 1):
+        facing = DOWN if r < n_pal else FWD if r < n_pal + 4 else UP
+        for i in range(n - 1):
+            parts.face((grid[r][i], grid[r][i + 1], grid[r + 1][i + 1], grid[r + 1][i]), facing)
+
+    def at(uc: float, f: float, side: float):
+        """lining point at arc position uc (-1..1) and fraction f of the way in, and the lip line's direction there"""
+        L0 = np.array([np.interp(uc, u, Lh[:, k]) for k in range(3)])
+        dd = np.array([np.interp(uc, u, d[:, k]) for k in range(3)])
+        ta = float(np.interp(uc, u, tau))
+        tan = np.array([np.interp(uc, u, np.gradient(Lh[:, k])) for k in range(3)])
+        return _rib(L0, dd, ta, a, b, f, side), _n(tan), dd
+
+    # ---- tongue: lies on the floor of the mouth, from just behind the lower front teeth to the throat
+    TW, TH, fa, fb = TONGUE
+    ic = int(np.argmin(np.abs(u)))
+    NA, NB = 16, 13
+    tg = []
+    for ia in range(NA + 1):
+        al = ia / NA
+        f = fa + (fb - fa) * al
+        c = _rib(Lh[ic], d[ic], tau[ic], a, b, f, -1)
+        w = TW * math.sqrt(max(0.0, 1.0 - (1.0 - min(al / 0.2, 1.0)) ** 2)) * (1.0 - 0.12 * al)
+        tip = float(ss(0.0, 0.12, al))
+        line = []
+        for ib in range(NB + 1):
+            be = -1.0 + 2.0 * ib / NB
+            groove = 0.00028 * math.exp(-(be / 0.2) ** 2) * float(ss(0.12, 0.3, al) * ss(0.98, 0.75, al))
+            z = (TH + 0.0005) * max(0.0, 1.0 - be * be) ** 0.6 * tip - 0.0005 - groove
+            p = c + np.array((w * be, 0.0, z))
+            line.append(parts.add(p, _patch_uv("tongue", (be + 1) * 0.5, al), 1.0, group="tongue"))
+        tg.append(line)
+    for ia in range(NA):
+        for ib in range(NB):
+            parts.face((tg[ia][ib], tg[ia][ib + 1], tg[ia + 1][ib + 1], tg[ia + 1][ib]), UP)
+
+    # ---- teeth: curved cones standing in the gum along the row of teeth
+    half_len = s[-1] * 0.5
+
+    def tooth(mm, depth, length, ra, rb, bend, segs, side, x_side, name):
+        uc = x_side * (mm * 0.001) / half_len
+        f = depth / max(float(np.linalg.norm(np.array([np.interp(uc, u, d[:, k]) for k in range(3)]))), 1e-4)
+        gum, tan, _ = at(uc, f, side)
+        base = gum + np.array((0.0, 0.0, side * TOOTH_EMBED))
+        D = np.array((0.0, 0.0, -side))
+        backv = np.array((0.0, -1.0, 0.0))
+        e1 = _n(tan - D * (tan @ D))
+        e2 = _n(np.cross(D, e1))
+        ts = (0.0, 0.18, 0.38, 0.58, 0.76, 0.9)
+        rings = []
+        for t in ts:
+            ctr = base + D * length * t + backv * length * bend * t * t
+            rf = (1.0 - t ** 1.7) ** 0.75
+            ring = []
+            for j in range(segs):
+                ph = 2 * math.pi * j / segs
+                off = e1 * (math.cos(ph) * ra * rf) + e2 * (math.sin(ph) * rb * rf)
+                ring.append(parts.add(ctr + off, _patch_uv("teeth", 0.5, t), 1.0 if side < 0 else 0.0, group=name))
+            rings.append((ring, ctr))
+        tip = base + D * length + backv * length * bend
+        it = parts.add(tip, _patch_uv("teeth", 0.5, 1.0), 1.0 if side < 0 else 0.0, group=name)
+        for k in range(len(rings) - 1):
+            (r0, c0), (r1, c1) = rings[k], rings[k + 1]
+            for j in range(segs):
+                j2 = (j + 1) % segs
+                mid = 0.25 * (parts.P[r0[j]] + parts.P[r0[j2]] + parts.P[r1[j]] + parts.P[r1[j2]])
+                parts.face((r0[j], r0[j2], r1[j2], r1[j]), mid - 0.5 * (c0 + c1))
+        r0, c0 = rings[-1]
+        for j in range(segs):
+            j2 = (j + 1) % segs
+            mid = (parts.P[r0[j]] + parts.P[r0[j2]] + parts.P[it]) / 3.0
+            parts.face((r0[j], r0[j2], it), mid - c0)
+
+    k = 0
+    for x_side in (-1.0, 1.0):
+        for side, table in ((+1.0, UPPER_TEETH), (-1.0, LOWER_TEETH)):
+            for row in table:
+                tooth(*row, side, x_side, f"tooth{k}")
+                k += 1
+
+    # ---- into the cat's space; make sure nothing shows through the closed lips
+    P = hd_arr(np.array(parts.P))
+    grp = np.array(parts.group)
+    shape = cat.shape
+    sd = shape.sdf(P)
+    pushed = 0
+    for _ in range(3):
+        bad = (sd > -0.00025) & ((grp == "lining") | (grp == "tongue"))
+        if not bad.any():
+            break
+        g = shape.grad(P[bad])
+        g /= np.maximum(np.linalg.norm(g, axis=1), 1e-9)[:, None]
+        P[bad] -= g * (sd[bad] + 0.0004)[:, None]
+        pushed += int(bad.sum())
+        sd = shape.sdf(P)
+    # the same against the body as it is really built (its flat faces cut a little inside the curved shape)
+    from mathutils.bvhtree import BVHTree
+    bvh = BVHTree.FromPolygons(Vb.tolist(), [list(p.vertices) for p in me.polygons])
+
+    def depth(Q):
+        """signed distance of each point to the body mesh (< 0 inside), nearest point, its face normal"""
+        out = np.zeros(len(Q))
+        loc = np.zeros_like(Q)
+        nrm = np.zeros_like(Q)
+        for i, q in enumerate(Q):
+            l, nv, _, dist = bvh.find_nearest(Vector(q))
+            if l is None:
+                out[i] = -1.0
+                continue
+            loc[i], nrm[i] = l, nv
+            out[i] = dist if (Vector(q) - l).dot(nv) > 0 else -dist
+        return out, loc, nrm
+
+    soft = (grp == "lining") | (grp == "tongue")
+    for it_ in range(6):
+        dd, loc, nrm = depth(P)
+        bad = soft & (dd > -0.00035)
+        if not bad.any():
+            break
+        P[bad] = loc[bad] - nrm[bad] * (0.00045 + 0.00015 * it_)
+        pushed += int(bad.sum())
+    # teeth that would show through the closed lips are made smaller, the same on both sides
+    def tooth_scale(idx):
+        segs = (len(idx) - 1) // 6
+        base = P[idx[:segs]].mean(axis=0)     # middle of the ring in the gum
+        sc = 1.0
+        while sc > 0.35:
+            Q = base + (P[idx] - base) * sc
+            if not ((shape.sdf(Q) > -0.0002).any() or (depth(Q)[0] > -0.0002).any()):
+                break
+            sc *= 0.92
+        if sc <= 0.35:
+            Q = P[idx]
+            bad_ = (shape.sdf(Q) > -0.0002) | (depth(Q)[0] > -0.0002)
+            log(f"   tooth at {np.round(head_local(base[None])[0] * 1000, 1)} mm cannot hide: "
+                f"{int(bad_.sum())} of {len(idx)} points out, sdf {shape.sdf(Q[bad_]).max() * 1000:.2f} mm, "
+                f"mesh {depth(Q[bad_])[0].max() * 1000:.2f} mm")
+        return base, sc
+
+    short = []
+    for k_ in range(k // 2):
+        pair = [np.nonzero(grp == f"tooth{k_}")[0], np.nonzero(grp == f"tooth{k_ + k // 2}")[0]]
+        found = [tooth_scale(idx) for idx in pair]
+        sc = min(f[1] for f in found)
+        for idx, (base, _) in zip(pair, found):
+            P[idx] = base + (P[idx] - base) * sc
+        if sc < 0.999:
+            short.append(f"tooth{k_} x{sc:.2f}")
+    out_now = (depth(P)[0] > 0.0) & (grp != "lip")
+    left = int(out_now.sum())
+    if left:
+        Ho = head_local(P[out_now]) * 1000
+        for g_ in sorted(set(grp[out_now])):
+            m_ = grp[out_now] == g_
+            log(f"   outside: {g_} {int(m_.sum())} verts around {np.round(Ho[m_].mean(axis=0), 1)} mm "
+                f"(x {Ho[m_, 0].min():.1f}..{Ho[m_, 0].max():.1f})")
+    # ---- weights: the lip rows copy the body's, the rest goes with the head (upper) or the jaw (lower)
+    jh, jj = names.index("head"), names.index("jaw")
+    Wm = np.zeros((len(P), len(names)))
+    for i, (cp, J) in enumerate(zip(parts.copy, parts.J)):
+        if cp >= 0:
+            Wm[i] = W[cp]
+        else:
+            Wm[i, jh] = 1.0 - J
+            Wm[i, jj] = J
+    # ---- add to CatEyes
+    obj = cat.eyes
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    uvl = bm.loops.layers.uv.get(geo.UV0) or bm.loops.layers.uv.active
+    first = len(bm.verts)
+    vs = [bm.verts.new(tuple(p)) for p in P]
+    nf = 0
+    for f in parts.F:
+        try:
+            face = bm.faces.new([vs[i] for i in f])
+        except ValueError:
+            continue
+        face.smooth = True
+        for loop, i in zip(face.loops, f):
+            loop[uvl].uv = parts.UV[i]
+        nf += 1
+    bm.to_mesh(obj.data)
+    bm.free()
+    for j, name in enumerate(names):
+        idx = np.nonzero(Wm[:, j] > 1e-4)[0]
+        if not len(idx):
+            continue
+        g = obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
+        for i in idx:
+            g.add([first + int(i)], float(Wm[i, j]), "REPLACE")
+    log(f"mouth inside: {len(P)} verts, {nf} faces (lining {n} x {len(grid)}, tongue, {k} teeth); "
+        f"lip line {s[-1] * 1000:.1f} mm; pushed in {pushed}; shortened {short or 'none'}; "
+        f"{left} still outside the closed head; {time.time() - t0:.1f}s")
 
 
 # =====================================================================================
@@ -1595,23 +2317,39 @@ class Painter:
         self.torso, self.legf, self.legh, self.tail, self.headr = torso, legf, legh, tail, headr
 
         # ---------------------------------------------------------- tabby pattern (0..1 = dark)
-        # flanks: mackerel stripes running down from the spine, bending back a little towards the belly
-        ye = y + 0.011 * (phi / (math.pi / 2)) ** 2 + 0.0050 * n1 + 0.0018 * n2
-        lam = 0.0185
-        st = ss(0.66 + 0.10 * self.n_lo, 0.88 + 0.08 * self.n_lo, 0.5 + 0.5 * np.cos(2 * math.pi * ye / lam))
-        st *= 0.75 + 0.25 * ss(-0.4, 0.4, fbm(P, 60.0, 5))   # stripes not all equally dark
+        # A real mackerel tabby's stripes are made of hairs: soft, ragged edges, gaps, not all equally dark, and
+        # between them ticked (agouti) hair. Hair-sized noise (under a millimetre) roughens every edge.
+        self.n_hair = vnoise(P, 1500.0, 21)
+        self.n_hair2 = vnoise(P, 700.0, 22)
+        fuzz = 0.55 * self.n_hair + 0.35 * self.n_hair2
+        self.fuzz = fuzz
+
+        def bands(c, lo, hi, rough=0.11):
+            """dark where the wave c (1 = middle of a stripe) is above lo..hi, with ragged hairy edges"""
+            return ss(lo, hi, c + rough * fuzz)
+
+        def gaps(seed, freq, cut=-0.30):
+            """1 mostly, 0 in occasional gaps that break a stripe up"""
+            return ss(cut - 0.12, cut + 0.12, fbm(P, freq, seed))
+
+        # flanks: narrow mackerel stripes running down from the spine, bending back towards the belly, wavy
+        ye = y + 0.011 * (phi / (math.pi / 2)) ** 2 + 0.0058 * n1 + 0.0024 * n2
+        lam = 0.0195
+        st = bands(0.5 + 0.5 * np.cos(2 * math.pi * ye / lam), 0.66 + 0.08 * self.n_lo, 0.90 + 0.05 * self.n_lo)
+        st *= 0.62 + 0.38 * ss(-0.4, 0.4, fbm(P, 60.0, 5))   # stripes not all equally dark
+        st *= gaps(23, 34.0)
         st *= 1.0 - ss(1.85, 2.4, phi)                       # fade out on the lower belly
         st *= 1.0 - 0.6 * ss(0.06, 0.10, y) * ss(0.2, 0.6, N[:, 1])   # chest front: only faint bars
-        dorsal = 1.0 - ss(0.16, 0.30, phi + 0.03 * n1)       # dark line along the spine
-        belly_spots = ss(0.45, 0.7, vnoise(P * np.array((2.2, 1.0, 1.0)), 70.0, 9)) * ss(2.4, 2.7, phi) * 0.8
-        a_torso = np.maximum(np.maximum(st, dorsal * 0.95), belly_spots)
-        # neck: lines along the top, necklaces round the throat and chest
+        dorsal = 1.0 - ss(0.13, 0.27, phi + 0.03 * n1 + 0.035 * fuzz)   # dark line along the spine
+        belly_spots = ss(0.45, 0.7, vnoise(P * np.array((2.2, 1.0, 1.0)), 70.0, 9) + 0.12 * fuzz) * ss(2.4, 2.7, phi) * 0.6
+        a_torso = np.maximum(np.maximum(st, dorsal * 0.85), belly_spots)
+        # neck: lines along the top, broken necklaces round the throat and chest
         dn = np.linalg.norm(Ph - np.array((0.0, 0.245, 0.236)), axis=1)
-        neck_rings = ss(0.55, 0.8, 0.5 + 0.5 * np.cos(2 * math.pi * (dn - 0.008 * n1) / 0.019)) * ss(1.1, 1.6, phi)
-        neck_rings *= ss(0.05, 0.065, dn) * (1 - ss(0.11, 0.125, dn))
-        neck_top = ss(0.6, 0.85, 0.5 + 0.5 * np.cos(2 * math.pi * (x + 0.0015 * n1) / 0.0105)) * (1 - ss(0.7, 1.1, phi))
+        neck_rings = bands(0.5 + 0.5 * np.cos(2 * math.pi * (dn - 0.008 * n1) / 0.019), 0.62, 0.86) * ss(1.1, 1.6, phi)
+        neck_rings *= ss(0.05, 0.065, dn) * (1 - ss(0.11, 0.125, dn)) * gaps(25, 40.0, -0.2) * 0.8
+        neck_top = bands(0.5 + 0.5 * np.cos(2 * math.pi * (x + 0.0015 * n1) / 0.0105), 0.66, 0.88) * (1 - ss(0.7, 1.1, phi))
         neck_w = ss(0.105, 0.135, y)
-        a_torso = a_torso * (1 - neck_w) + np.maximum(neck_rings, neck_top) * neck_w
+        a_torso = a_torso * (1 - neck_w) + np.maximum(neck_rings, neck_top * 0.85) * neck_w
         # legs: rings, weaker on the inside of the leg
         fpts = {s: [_side(FRONT[k], s) for k in ("toe", "knuckle", "wrist", "elbow", "shoulder")] for s in (-1.0, 1.0)}
         hpts = {s: [_side(HIND[k], s) for k in ("toe", "knuckle", "hock", "stifle", "hip")] for s in (-1.0, 1.0)}
@@ -1623,17 +2361,20 @@ class Painter:
             sh[m] = _chain_param_smooth(P[m], hpts[s])
         self.sf, self.sh = sf, sh
         inner = ss(0.1, 0.6, -nlat)
-        ring_f = ss(0.64, 0.86, 0.5 + 0.5 * np.cos(2 * math.pi * (sf + 0.003 * n1) / 0.017)) * (1 - 0.85 * inner)
-        ring_f *= ss(0.03, 0.05, sf)                         # paws plain
-        ring_h = ss(0.64, 0.86, 0.5 + 0.5 * np.cos(2 * math.pi * (sh + 0.003 * n1) / 0.018)) * (1 - 0.85 * inner)
-        ring_h *= ss(0.035, 0.055, sh)
+        # legs: narrow bars, unevenly spaced and unevenly dark, faint or missing on the inside of the leg
+        uneven = 0.0060 * n1 + 0.0028 * n2
+        ring_f = bands(0.5 + 0.5 * np.cos(2 * math.pi * (sf + uneven) / 0.0165), 0.70, 0.90) * (1 - 0.85 * inner)
+        ring_f *= ss(0.03, 0.05, sf) * (0.6 + 0.4 * ss(-0.3, 0.3, fbm(P, 50.0, 24))) * gaps(26, 45.0, -0.35)
+        ring_h = bands(0.5 + 0.5 * np.cos(2 * math.pi * (sh + uneven) / 0.0175), 0.70, 0.90) * (1 - 0.85 * inner)
+        ring_h *= ss(0.035, 0.055, sh) * (0.6 + 0.4 * ss(-0.3, 0.3, fbm(P, 50.0, 27))) * gaps(28, 45.0, -0.35)
         # dark "stocking" on the back of the hind foot (hock down to the paw)
-        stocking = ss(0.25, 0.6, -N[:, 1]) * ss(0.075, 0.06, z) * ss(0.01, 0.02, z)
-        a_legh = np.maximum(ring_h, stocking * 0.9)
-        # tail: rings and a dark tip
+        stocking = ss(0.25, 0.6, -N[:, 1] + 0.1 * fuzz) * ss(0.075, 0.06, z) * ss(0.01, 0.02, z)
+        a_legh = np.maximum(ring_h, stocking * 0.8)
+        # tail: narrow rings, a little uneven, and a dark tip
         st_t, _ = _chain_param(P, [tuple(tail_pt(0)), tuple(tail_pt(1.0))])
-        ring_t = ss(0.45, 0.72, 0.5 + 0.5 * np.cos(2 * math.pi * (st_t - 0.004 + 0.002 * n1) / 0.024))
-        ring_t = np.maximum(ring_t * ss(0.01, 0.03, st_t), ss(0.245, 0.26, st_t))
+        ring_t = bands(0.5 + 0.5 * np.cos(2 * math.pi * (st_t - 0.004 + 0.0035 * n1) / 0.023), 0.58, 0.84)
+        ring_t *= 0.7 + 0.3 * ss(-0.3, 0.3, fbm(P, 40.0, 29))
+        ring_t = np.maximum(ring_t * ss(0.01, 0.03, st_t), ss(0.240, 0.258, st_t + 0.002 * fuzz))
         self.s_tail = st_t
         # head
         a_head = self._head_pattern(Ph, N, n1)
@@ -1656,19 +2397,45 @@ class Painter:
         for s in (-1.0, 1.0):
             A, r, _, _ = shape.eyes[s].angular(P)
             close = r < EYE_R + 0.0075
-            rim = np.maximum(rim, (ss(0.93, 1.0, A) * ss(1.22, 1.12, A)) * close)
-            near = np.maximum(near, ss(1.75, 1.25, A) * ss(EYE_R + 0.012, EYE_R + 0.004, r))
+            rim = np.maximum(rim, (ss(0.94, 1.0, A) * ss(1.15, 1.07, A)) * close)
+            near = np.maximum(near, ss(1.55, 1.18, A) * ss(EYE_R + 0.010, EYE_R + 0.004, r))
         self.eye_rim = np.clip(rim, 0, 1)
         self.spectacles = np.clip(near - rim, 0, 1)
         # skin
         # nose leather: the front of the nose pad only (a rounded triangle, point down)
-        tri = ss(0.0010, -0.0004, np.abs(x) - (0.0062 - 0.55 * np.clip(0.2725 - zh, 0, None)) + 0.0004 * n1)
-        nose = tx.r("nose", "bridge") * ss(0.05, 0.4, N[:, 1]) * ss(0.2735, 0.2715, zh) * ss(0.2615, 0.2635, zh) * tri
+        # (about 10 mm across, its top edge a little dipped in the middle, narrowing to the philtrum)
+        top = 0.2727 - 0.0005 * np.exp(-(x / 0.002) ** 2)
+        width = 0.0049 - 0.66 * np.clip(top - zh, 0, None)
+        tri = ss(0.0008, -0.0003, np.abs(x) - width + 0.0003 * n1)
+        nose = tx.r("nose", "bridge", "muzzle") * ss(0.05, 0.4, N[:, 1]) * ss(top + 0.001, top - 0.0004, zh) \
+            * ss(0.2654, 0.2664, zh) * tri
+        # nostrils: short dark slits curving up and out at the sides of the nose leather
+        dn = np.full(len(P), 1.0)
+        for s in (-1.0, 1.0):
+            dn = np.minimum(dn, _polyline_dist(np.stack([x, zh], 1), [(s * 0.0018, 0.2680), (s * 0.0030, 0.2689),
+                                                                     (s * 0.0039, 0.2704)]))
+        self.nostril = np.clip(ss(0.0006, 0.0002, dn) * nose, 0, 1)
         self.nose = np.clip(nose, 0, 1)
-        self.nose_rim = np.clip(tx.r("nose", "bridge") * ss(0.0, 0.3, N[:, 1]) * ss(0.2755, 0.2735, zh)
-                                * ss(0.0025, -0.0003, np.abs(x) - (0.0062 - 0.55 * np.clip(0.2725 - zh, 0, None))) - nose, 0, 1)
+        self.nose_rim = np.clip(tx.r("nose", "bridge", "muzzle") * ss(0.0, 0.3, N[:, 1]) * ss(top + 0.0022, top + 0.0008, zh)
+                                * ss(0.2648, 0.2660, zh) * ss(0.0020, -0.0002, np.abs(x) - width) - nose, 0, 1)
         self.inner_ear = ss(0.0011, 0.0004, tx.hollow) * tx.r("ear")
-        self.lips = ss(0.0011, 0.0004, tx.mouth) * tx.r("muzzle", "chin")
+        # ear furnishings: tufts of pale hair growing out of the lower part of the ear opening (a real ear is
+        # bare and pink only higher up inside)
+        h_ear = np.ones(len(P))
+        for hol in shape.ear_hollows:
+            h_ear = np.where(np.sign(hol.base[0]) == sx, ((P - hol.base) @ hol.e3) / hol.H, h_ear)
+        ear_open = ss(0.0016, 0.0006, tx.hollow) * tx.r("ear")
+        self.furnish = np.clip(ear_open * ss(0.60, 0.30, h_ear + 0.08 * self.fuzz), 0, 1)
+        self.inner_ear = self.inner_ear * (1 - self.furnish)
+        # dark lip margins along the lip line, and the faint philtrum line down from the nose (the upside-down Y)
+        # (darkest on the upside-down Y in front, fainter further back where the whisker pads hide the lips)
+        _, fr_lip = _polyline_closest(P, shape.lip)
+        self.lips = ss(0.0007, 0.0002, tx.mouth) * (0.20 + 0.65 * ss(0.55, 0.28, np.abs(2.0 * fr_lip - 1.0)))
+        if shape.philtrum is not None:
+            dph = _polyline_closest(P, shape.philtrum)[0]
+            self.philtrum = ss(0.00075, 0.0003, dph) * 0.75
+        else:
+            self.philtrum = np.zeros(len(P))
         pads = np.zeros(len(P))
         for s in (-1.0, 1.0):
             for pc, toes, mainr in (((s * FX, 0.093), 0.0122, (0.0085, 0.0060)), ((s * HX, -0.127), 0.0122, (0.0080, 0.0058))):
@@ -1704,6 +2471,8 @@ class Painter:
         L = (L_torso * reg_t + L_legf * legf + L_legh * legh + 1.0 * tail + L_head * headr)
         L /= np.maximum(reg_t + legf + legh + tail + headr, 1e-6)
         L *= 1.0 - self.skin
+        L = np.maximum(L, 0.55 * self.furnish)
+        L *= ss(0.0006, 0.0020, tx.mouth)          # bare lips: no hair hangs over the mouth when it opens
         self.fur_len = np.clip(L, 0, 1)
         G = 0.5 * reg_t + 0.3 * (legf + legh) + 0.45 * tail + 0.3 * headr
         G /= np.maximum(reg_t + legf + legh + tail + headr, 1e-6)
@@ -1717,23 +2486,24 @@ class Painter:
         ax = np.abs(x)
         sx = self.sx
         front = ss(0.0, 0.35, N[:, 1]) * ss(0.214, 0.226, y)
-        # the "M" on the forehead, drawn in the front view (x, z)
-        Mpts = [(-0.0185, 0.2985), (-0.0115, 0.3085), (-0.0055, 0.2995), (0.0, 0.3105),
-                (0.0055, 0.2995), (0.0115, 0.3085), (0.0185, 0.2985)]
+        fz = self.fuzz
+        # the "M" on the forehead, drawn in the front view (x, z): thin, hairy lines, not a painted letter
+        Mpts = [(-0.0180, 0.2985), (-0.0112, 0.3080), (-0.0055, 0.2998), (0.0, 0.3100),
+                (0.0055, 0.2998), (0.0112, 0.3080), (0.0180, 0.2985)]
         dM = _polyline_dist(np.stack([x, z], 1), Mpts)
-        dM = np.minimum(dM, _polyline_dist(np.stack([x, z], 1), [(0.0, 0.3105), (0.0, 0.2945)]))
-        aM = ss(0.0016, 0.0009, dM + 0.0003 * n1) * front
+        dM = np.minimum(dM, _polyline_dist(np.stack([x, z], 1), [(0.0, 0.3100), (0.0, 0.2955)]))
+        aM = ss(0.0012, 0.0005, dM + 0.0003 * n1 + 0.00035 * fz) * front * 0.85
         # lines running back over the crown to the neck
-        crown = ss(0.62, 0.86, 0.5 + 0.5 * np.cos(2 * math.pi * (x + 0.001 * n1) / 0.0105)) * ss(0.25, 0.6, N[:, 2])
-        crown *= ss(0.236, 0.226, y) * (1 - ss(0.018, 0.024, ax))
-        # cheek lines from the outer eye corner backwards
-        c1 = [(0.0275, 0.2355, 0.2875), (0.0335, 0.222, 0.2855), (0.0375, 0.205, 0.281), (0.0365, 0.190, 0.270)]
-        c2 = [(0.0285, 0.2275, 0.2715), (0.0350, 0.214, 0.2650), (0.0380, 0.200, 0.2575), (0.0330, 0.188, 0.2470)]
+        crown = ss(0.68, 0.90, 0.5 + 0.5 * np.cos(2 * math.pi * (x + 0.001 * n1) / 0.0105) + 0.1 * fz)
+        crown *= ss(0.25, 0.6, N[:, 2]) * ss(0.236, 0.226, y) * (1 - ss(0.018, 0.024, ax)) * 0.8
+        # the lines from the outer corner of the eye back across the cheek, and the one below it
+        c1 = [(0.0262, 0.2372, 0.2878), (0.0320, 0.2250, 0.2862), (0.0370, 0.2070, 0.2815), (0.0365, 0.1900, 0.2700)]
+        c2 = [(0.0285, 0.2280, 0.2720), (0.0350, 0.2140, 0.2650), (0.0380, 0.2000, 0.2575), (0.0330, 0.1880, 0.2470)]
         Pm = np.stack([ax, y, z], 1)
-        dc = np.minimum(_polyline_dist(Pm, c1), _polyline_dist(Pm, c2))
-        aC = ss(0.0021, 0.0012, dc + 0.0004 * n1) * ss(0.15, 0.45, N[:, 0] * sx)
+        dc = np.minimum(_polyline_dist(Pm, c1), _polyline_dist(Pm, c2) + 0.0002)
+        aC = ss(0.0016, 0.0007, dc + 0.0004 * n1 + 0.00035 * fz) * ss(0.15, 0.45, N[:, 0] * sx) * 0.85
         # ear backs darker
-        ear_back = self.tx.r("ear") * ss(0.0, -0.5, N[:, 1]) * 0.55
+        ear_back = self.tx.r("ear") * ss(0.0, -0.5, N[:, 1]) * 0.5
         return np.clip(np.maximum.reduce([aM, crown, aC, ear_back]), 0, 1)
 
     # ------------------------------------------------------------------ colour
@@ -1752,15 +2522,21 @@ class Painter:
         tick = (1.0 + 0.10 * nf + 0.06 * nl)[:, None]
         white = c((0.93, 0.92, 0.88))
         if name == "tabby":
-            ground = c((0.49, 0.41, 0.30)) * tick
-            ground = mix(ground, c((0.30, 0.25, 0.19)), ss(0.2, 0.7, self.n_fine) * 0.5)     # darker ticking
-            col = mix(ground, c((0.10, 0.08, 0.062)), a * 0.9)
-            pale = c((0.82, 0.76, 0.64)) * tick
+            # ticked (agouti) ground: every hair is banded dark and warm buff, so up close it is finely peppered
+            ground = c((0.53, 0.45, 0.33)) * (1.0 + 0.08 * nl + 0.05 * nf)[:, None]
+            pepper = 0.50 * ss(0.05, 0.65, self.n_hair) + 0.18 * ss(0.3, 0.8, self.n_hair2)
+            ground = mix(ground, c((0.19, 0.155, 0.12)), pepper)
+            ground = ground * (1.0 + 0.10 * self.n_hair2)[:, None]
+            # stripes: dark brown, not black, and not fully solid (some ticked hairs run through them)
+            stripe = c((0.15, 0.115, 0.085)) * (1.0 + 0.18 * self.n_hair)[:, None]
+            col = mix(ground, stripe, a * (0.80 + 0.08 * self.n_hair2))
+            pale = c((0.80, 0.74, 0.62)) * (1.0 + 0.05 * nl)[:, None]
+            pale = mix(pale, c((0.55, 0.47, 0.37)), 0.25 * ss(0.3, 0.9, self.n_hair))
             throat = ss(0.15, 0.19, self.tx.P[:, 1])
-            pale_m = np.maximum.reduce([self.belly, self.chin * 1.0, self.muzzle * 0.9, self.spectacles * 0.85,
+            pale_m = np.maximum.reduce([self.belly, self.chin * 1.0, self.muzzle * 0.85, self.spectacles * 0.55,
                                         self.bib * (0.45 + 0.45 * throat)])
             col = mix(col, pale, pale_m * (1 - 0.7 * a))
-            nose, pads, ear_in, rim = (0.70, 0.38, 0.33), (0.20, 0.14, 0.13), (0.74, 0.60, 0.56), (0.07, 0.06, 0.05)
+            nose, pads, ear_in, rim = (0.50, 0.27, 0.24), (0.20, 0.14, 0.13), (0.66, 0.54, 0.50), (0.07, 0.06, 0.05)
         elif name == "ginger":
             ground = c((0.87, 0.53, 0.22)) * tick
             col = mix(ground, c((0.66, 0.30, 0.09)), a * 0.8)
@@ -1794,10 +2570,15 @@ class Painter:
         pinkpads = name in ("ginger", "white")
         col = mix(col, c(rim), self.nose_rim * 0.8)
         col = mix(col, c(nose), self.nose)
+        col = mix(col, c(nose) * 0.35, self.nostril)
         col = mix(col, c(pads if not (name == "tux") else (0.82, 0.55, 0.53)), self.pads * (1.0 if not pinkpads else 1.0))
         col = mix(col, c(ear_in), self.inner_ear)
+        furn = {"tabby": (0.78, 0.72, 0.62), "ginger": (0.95, 0.86, 0.72), "black": (0.16, 0.14, 0.13),
+                "white": (0.93, 0.92, 0.89), "grey": (0.76, 0.76, 0.78), "tux": (0.16, 0.14, 0.13)}[name]
+        col = mix(col, c(furn) * (1.0 + 0.08 * self.n_hair)[:, None], self.furnish * 0.85)
         col = mix(col, c(rim), self.eye_rim)
         col = mix(col, c(rim) * 0.8 + c(nose) * 0.2, self.lips)
+        col = mix(col, c(rim) * 0.7 + col * 0.3, self.philtrum * (1 - self.nose))
         return np.clip(col, 0.0, 1.0)
 
 
@@ -1830,24 +2611,77 @@ def eye_texture(res: int = TEX) -> np.ndarray:
     P = np.stack([du.ravel(), dv.ravel(), np.zeros(du.size)], 1)
     n_rad = fbm(np.stack([np.cos(psi.ravel()) * 3, np.sin(psi.ravel()) * 3, rho.ravel() * 0.4], 1), 9.0, 11).reshape(res, res)
     fib = 0.5 + 0.5 * np.sin(psi * 90 + 6 * n_rad)
-    inner = np.array((0.58, 0.64, 0.22))
-    mid = np.array((0.86, 0.68, 0.20))
-    outer = np.array((0.74, 0.47, 0.12))
-    t = np.clip(th / 52.0, 0, 1)[..., None]
+    # green-gold, as most tabby eyes are (not a cartoon yellow)
+    inner = np.array((0.36, 0.45, 0.20))
+    mid = np.array((0.56, 0.55, 0.22))
+    outer = np.array((0.50, 0.41, 0.16))
+    # (a cat's iris fills nearly all of the visible eye: it reaches well past the eyelids)
+    t = np.clip(th / 60.0, 0, 1)[..., None]
     col = np.where(t < 0.45, inner + (mid - inner) * (t / 0.45), mid + (outer - mid) * ((t - 0.45) / 0.55))
     col = col * (0.85 + 0.25 * fib[..., None]) * (0.92 + 0.12 * fbm(P, 30.0, 12).reshape(res, res)[..., None])
-    # dark limbal ring and the sclera beyond
-    limb = ss(44.0, 51.0, th)
-    col = col * (1 - 0.75 * limb[..., None])
-    sclera = ss(52.0, 55.0, th)
-    col = col + (np.array((0.62, 0.54, 0.44)) - col) * sclera[..., None]
+    # soft darker limbal ring and the (shadowed) sclera beyond
+    limb = ss(50.0, 60.0, th)
+    col = col * (1 - 0.55 * limb[..., None])
+    sclera = ss(61.0, 64.0, th)
+    col = col + (np.array((0.40, 0.33, 0.26)) - col) * sclera[..., None]
     # slit pupil (vertical, pointed ends)
     ph, pw = 0.30, 0.065
     yy = dv / ph
     half = pw * np.clip(1.0 - yy * yy, 0.0, 1.0)
     pupil = ss(0.004, -0.002, np.abs(du) - half) * (np.abs(yy) < 1.0)
     col = col * (1 - pupil[..., None]) + np.array((0.012, 0.010, 0.010)) * pupil[..., None]
+    _mouth_patches(col, res)
     return np.clip(col, 0, 1).astype(np.float32)
+
+
+def _mouth_patches(col: np.ndarray, res: int) -> None:
+    """Paint the inside of the mouth into three corners of the eye picture (see MOUTH_PATCH)."""
+    cell = int(round(0.125 * res))
+
+    def patch(name):
+        ox, oy = MOUTH_PATCH[name]
+        x0, y0 = int(round(ox * res)), int(round(oy * res))
+        v, u = np.mgrid[0:cell, 0:cell]
+        pu = (((x0 + u + 0.5) / res) - ox - PATCH_IN) / PATCH_W
+        pv = (((y0 + v + 0.5) / res) - oy - PATCH_IN) / PATCH_W
+        return (slice(y0, y0 + cell), slice(x0, x0 + cell)), np.clip(pu, -0.2, 1.2), np.clip(pv, -0.2, 1.2)
+
+    def rgb(c):
+        return np.asarray(c, float)[None, None, :]
+
+    def mix(A, B, t):
+        return A + (B - A) * np.clip(t, 0.0, 1.0)[..., None]
+
+    def noise(pu, pv, f, seed):
+        P = np.stack([pu.ravel(), pv.ravel(), np.zeros(pu.size)], 1)
+        return fbm(P, f, seed).reshape(pu.shape)
+
+    # lining: v = 0 upper lip .. 0.45 back of the palate .. 0.55 throat .. 1 lower lip
+    sl, pu, pv = patch("lining")
+    pal = pv < 0.5
+    f = np.where(pal, pv / 0.45, (1.0 - pv) / 0.45)          # 0 at the lips, 1 at the back
+    c = np.where(pal[..., None], rgb((0.58, 0.29, 0.31)), rgb((0.50, 0.24, 0.26)))
+    c = mix(c, rgb((0.70, 0.43, 0.43)), ss(0.04, 0.07, f) * ss(0.20, 0.13, f))     # gums along the teeth
+    c = mix(c, rgb((0.17, 0.09, 0.09)), ss(0.05, 0.015, f))                         # dark inner lip
+    # ridges across the roof of the mouth (curved forwards in the middle)
+    ridge = 0.5 + 0.5 * np.cos(2 * math.pi * (f * 8.5 + 0.9 * (pu - 0.5) ** 2))
+    c = c * (1.0 - (0.22 * ss(0.55, 0.95, ridge) * ss(0.16, 0.24, f) * ss(0.80, 0.62, f) * pal))[..., None]
+    c = c * (1.0 + 0.08 * noise(pu, pv, 9.0, 31))[..., None]
+    c = c * (1.0 - 0.6 * ss(0.55, 1.0, f))[..., None]                               # darker further in
+    c = mix(c, rgb((0.09, 0.025, 0.03)), ss(0.94, 1.0, f))                           # the throat
+    col[sl] = c
+    # tongue: v = 0 tip .. 1 back, u across
+    sl, pu, pv = patch("tongue")
+    c = rgb((0.80, 0.46, 0.47)) * (1.0 + 0.10 * noise(pu, pv, 60.0, 32) + 0.05 * noise(pu, pv, 14.0, 33))[..., None]
+    c = c * (1.0 - 0.28 * np.exp(-((pu - 0.5) / 0.05) ** 2) * ss(0.12, 0.3, pv) * ss(0.95, 0.7, pv))[..., None]
+    c = c * (1.0 - 0.35 * ss(0.30, 0.48, np.abs(pu - 0.5)))[..., None]              # edges tuck under
+    c = c * (1.0 - 0.5 * ss(0.65, 1.0, pv))[..., None]
+    col[sl] = c
+    # teeth: v = 0 in the gum .. 1 tip
+    sl, pu, pv = patch("teeth")
+    c = mix(rgb((0.66, 0.40, 0.40)), rgb((0.84, 0.78, 0.66)), ss(0.08, 0.22, pv))
+    c = mix(c, rgb((0.95, 0.94, 0.90)), ss(0.3, 0.9, pv))
+    col[sl] = c
 
 
 # =====================================================================================
@@ -2041,6 +2875,7 @@ class Cat:
         self.images: dict[str, bpy.types.Image] = {}
         self.coat_px: dict[str, np.ndarray] = {}
         self.fur_px: np.ndarray | None = None
+        self.lips: tuple[np.ndarray, np.ndarray] | None = None   # body vertices of the upper / lower lip line
 
 
 def build(coll=None, target_faces: int = 3500) -> Cat:
@@ -2049,14 +2884,17 @@ def build(coll=None, target_faces: int = 3500) -> Cat:
     t0 = time.time()
     cat.shape = Shape()
     cat.body = build_body_mesh(cat.shape, coll, target_faces)
+    cut_mouth(cat.shape, cat.body)
     unwrap(cat.body)
+    cat.lips = read_lips(cat.body.data)
     cat.rig = build_rig(coll)
-    names, W = compute_weights(cat.shape, cat.body.data)
+    names, W = compute_weights(cat.shape, cat.body.data, lips=cat.lips)
     apply_weights(cat.body, names, W)
     bind(cat.body, cat.rig)
     cat.eyes = build_eyes(coll)
     g = cat.eyes.vertex_groups.new(name="head")
     g.add(list(range(len(cat.eyes.data.vertices))), 1.0, "REPLACE")
+    add_mouth_inside(cat, names, W)
     bind(cat.eyes, cat.rig)
     nmax = max(len(v.groups) for v in cat.body.data.vertices)
     log(f"rig: {len(cat.rig.data.bones)} bones, worst local-X . world-X = {check_rig_axes(cat.rig):.4f}, "
@@ -2191,8 +3029,9 @@ def hair_material() -> bpy.types.Material:
     return m
 
 
-def fur_preview(cat: Cat, coat: str, coll, strands: int = 240000, seed: int = 5) -> bpy.types.Object:
-    """A quick look at the fur: real hair strands grown from the fur map, coloured by the coat."""
+def fur_preview(cat: Cat, coat: str, coll, strands: int = 240000, seed: int = 5, posed: bool = False) -> bpy.types.Object:
+    """A quick look at the fur: real hair strands grown from the fur map, coloured by the coat.
+    posed=True grows them on the body as the rig poses it now (the strands do not follow later poses)."""
     t0 = time.time()
     me = cat.body.data
     me.calc_loop_triangles()
@@ -2202,12 +3041,20 @@ def fur_preview(cat: Cat, coat: str, coll, strands: int = 240000, seed: int = 5)
     me.loop_triangles.foreach_get("vertices", tv)
     me.loop_triangles.foreach_get("loops", tl)
     tv, tl = tv.reshape(T, 3), tl.reshape(T, 3)
-    V = np.empty(len(me.vertices) * 3)
-    me.vertices.foreach_get("co", V)
+    src = me
+    ev = None
+    if posed:
+        bpy.context.view_layer.update()
+        ev = cat.body.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        src = ev.to_mesh()
+    V = np.empty(len(src.vertices) * 3)
+    src.vertices.foreach_get("co", V)
     V = V.reshape(-1, 3)
-    Nv = np.empty(len(me.vertices) * 3)
-    me.vertices.foreach_get("normal", Nv)
+    Nv = np.empty(len(src.vertices) * 3)
+    src.vertices.foreach_get("normal", Nv)
     Nv = Nv.reshape(-1, 3)
+    if ev is not None:
+        ev.to_mesh_clear()
     uv = cat.texels.vert_uv[0]
     A = 0.5 * np.linalg.norm(np.cross(V[tv[:, 1]] - V[tv[:, 0]], V[tv[:, 2]] - V[tv[:, 0]]), axis=1)
     rng = np.random.default_rng(seed)

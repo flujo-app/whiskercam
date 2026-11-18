@@ -178,6 +178,12 @@ export class Npc {
   private readonly sample: GroundSample = { r: 0, g: 0, b: 0, sun: 1 };
   private litX = 1e9;
   private litZ = 1e9;
+  /** going round something: which side (-1 left, +1 right, 0 = not), and for how much longer that side is kept */
+  private roundSide = 0;
+  private roundFor = 0;
+  /** seconds with no way round; then seconds left of squeezing through regardless */
+  private stuckFor = 0;
+  private squeeze = 0;
 
   constructor(
     readonly name: string,
@@ -239,9 +245,65 @@ export class Npc {
       const turn = Math.abs(((b - a) / DEG + 540) % 360 - 180);
       corner = clamp(1 - (turn / 180) * 0.75 * clamp(1 - d / 5, 0, 1), 0.4, 1);
     }
-    const want = speed * corner;
+    let want = speed * corner;
+    // Something in the way (a pot knocked onto the path, a bin, the corner of a wall)? Look ahead at chest
+    // height and go round on the freer side. If there is no way round, squeeze through after a moment
+    // rather than stand there for good.
+    let aimX = tx;
+    let aimZ = tz;
+    this.squeeze = Math.max(0, this.squeeze - dt);
+    if (this.squeeze <= 0 && this.speed > 0.3) {
+      const reach = 0.42 + this.speed * 0.11;
+      const y = this.y + 0.22;
+      const h0 = this.heading * DEG;
+      // (to the cat's right)
+      const rx = Math.cos(h0);
+      const rz = Math.sin(h0);
+      const look = (deg: number, far: number, off = 0): number => {
+        const a = (this.heading + deg) * DEG;
+        const dx = Math.sin(a);
+        const dz = -Math.cos(a);
+        const ox = this.x + rx * off;
+        const oz = this.z + rz * off;
+        // walls and bins at chest height (kerbs and single steps pass under that), loose things at paw height
+        return Math.min(this.physics.rayDistance(ox, y, oz, dx, 0, dz, far), this.physics.propDistance(ox, this.y + 0.06, oz, dx, 0, dz, far));
+      };
+      // straight ahead, as wide as the cat is
+      const ahead = Math.min(look(0, reach), look(0, reach, -0.09), look(0, reach, 0.09));
+      if (ahead < reach) {
+        const left = look(-55, reach * 1.5);
+        const right = look(55, reach * 1.5);
+        if (this.roundSide === 0 || this.roundFor <= 0) this.roundSide = left > right ? -1 : 1;
+        this.roundFor = 0.45;
+        if (Math.max(left, right) > ahead + 0.08) {
+          const a = (this.heading + this.roundSide * 70) * DEG;
+          aimX = this.x + Math.sin(a);
+          aimZ = this.z - Math.cos(a);
+          want = Math.min(want, 1.6 + ahead * 5);
+          this.stuckFor = 0;
+        } else {
+          want = 0.4;
+          this.stuckFor += dt;
+          if (this.stuckFor > 0.8) {
+            this.squeeze = 0.9;
+            this.stuckFor = 0;
+          }
+        }
+      } else if (this.roundSide !== 0 && look(-this.roundSide * 80, 0.34) < 0.34) {
+        // alongside it now: hold the line until it is behind, instead of cutting the corner through it
+        const a = (this.heading + this.roundSide * 12) * DEG;
+        aimX = this.x + Math.sin(a);
+        aimZ = this.z - Math.cos(a);
+        this.roundFor = 0.3;
+        this.stuckFor = 0;
+      } else {
+        this.roundFor -= dt;
+        if (this.roundFor <= 0) this.roundSide = 0;
+        this.stuckFor = 0;
+      }
+    }
     this.speed += clamp(want - this.speed, -14 * dt, 9 * dt);
-    this.face(tx, tz, dt, 7 + this.speed);
+    this.face(aimX, aimZ, dt, 7 + this.speed);
     const h = this.heading * DEG;
     this.x += Math.sin(h) * this.speed * dt;
     this.z -= Math.cos(h) * this.speed * dt;
