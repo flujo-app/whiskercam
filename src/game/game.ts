@@ -124,6 +124,12 @@ export class Game {
       parallel: opts.lean ? 3 : 8,
       lite: opts.lean,
     });
+    // (Play starts on small copies of the pictures; the full ones are fetched once everything else is in,
+    // see the end of this function. Tests wait for the real thing.)
+    if (opts.manual) {
+      game.world.pictures.release();
+      await game.world.pictures.whenSharp();
+    }
     if (game.world.pictures.failed.length) console.warn('pictures that did not load:', game.world.pictures.failed);
     say(0.82, 'Checking the camera');
     const sky = new Sky(game.world.materials.globals);
@@ -177,6 +183,13 @@ export class Game {
       };
       refl.prioritise(sx, sz);
       game.reflections = refl;
+      // once the full pictures are in, the surroundings are worth a second look
+      if (game.world.pictures.owed > 0) {
+        void game.world.pictures.whenSharp().then(() => {
+          refl.retake();
+          refl.prioritise(game.player.x, game.player.z);
+        });
+      }
       game.reflectLevel = level;
       // in tests every picture is taken before the first frame; in play they come in over the first second or two
       if (opts.manual) refl.work(1e9);
@@ -195,6 +208,7 @@ export class Game {
       game.session.sfx.push({ name: 'wings', x, z });
     };
     say(1, 'Ready');
+    game.world.pictures.release();
     return game;
   }
 
