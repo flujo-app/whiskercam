@@ -182,8 +182,8 @@ export class Hud {
 
     const how = el('div', 'how');
     how.innerHTML = touchDevice
-      ? '<b>Left thumb</b> run and steer (push far to sprint) &nbsp;·&nbsp; <b>right side</b> drag to look &nbsp;·&nbsp; buttons: paws and jump (hold to jump higher) &nbsp;·&nbsp; push against a tree or a fence to climb it'
-      : '<b>W</b> run &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>mouse</b> or <b>A / D</b> steer &nbsp;·&nbsp; <b>Space</b> jump (hold for higher) &nbsp;·&nbsp; <b>click</b> or <b>Q / E</b> paws &nbsp;·&nbsp; <b>F</b> meow &nbsp;·&nbsp; push against a tree or a fence to climb &nbsp;·&nbsp; <b>S</b> pull back in a fight &nbsp;·&nbsp; <b>Esc</b> pause';
+      ? '<b>Left thumb</b> run and steer (push far to sprint) &nbsp;·&nbsp; <b>right side</b> drag to look &nbsp;·&nbsp; buttons: paws and jump (a pounce on the run, a high jump from a standstill) &nbsp;·&nbsp; push against a tree or a fence to climb it'
+      : '<b>W</b> run &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>mouse</b> or <b>A / D</b> steer &nbsp;·&nbsp; <b>Space</b> pounce (stand still for a high jump) &nbsp;·&nbsp; <b>click</b> or <b>Q / E</b> paws &nbsp;·&nbsp; <b>F</b> meow &nbsp;·&nbsp; push against a tree or a fence to climb &nbsp;·&nbsp; <b>S</b> pull back in a fight &nbsp;·&nbsp; <b>Esc</b> pause';
     const goal = el('div', 'goal', 'The camera battery lasts three minutes. Chase your brother, knock things over, climb a tree, win the turf. Everything earns views, and the run becomes a video you can post.');
     const best = this.bestLine;
     best.textContent = this.settings.best > 0 ? `Best clip so far: ${fmt(this.settings.best)} views` : '';
@@ -196,22 +196,7 @@ export class Hud {
   private settingsRows(): HTMLElement {
     const wrap = el('details', 'settings');
     wrap.append(el('summary', undefined, 'Settings'));
-    const range = (label: string, key: 'volume' | 'sensitivity' | 'motion', min: number, max: number) => {
-      const row = el('label', 'field');
-      row.append(el('span', 'field-label', label));
-      const input = el('input');
-      input.type = 'range';
-      input.min = String(min);
-      input.max = String(max);
-      input.step = '0.05';
-      input.value = String(this.settings[key]);
-      input.addEventListener('input', () => {
-        this.settings[key] = Number(input.value);
-        this.actions.settingsChanged();
-      });
-      row.append(input);
-      return row;
-    };
+    const range = (label: string, key: 'volume' | 'sensitivity' | 'motion', min: number, max: number) => this.rangeRow(label, key, min, max);
     const q = el('label', 'field');
     q.append(el('span', 'field-label', 'Picture'));
     const sel = el('select');
@@ -238,14 +223,41 @@ export class Hud {
       row.append(input, el('span', undefined, label));
       return row;
     };
-    wrap.append(q, range('Sound', 'volume', 0, 1), range('Turning speed', 'sensitivity', 0.4, 2), range('Camera wobble', 'motion', 0, 1),
+    wrap.append(q, range('Sound', 'volume', 0, 1), range('Turning speed', 'sensitivity', 0.4, 2), range('Camera shake', 'motion', 0, 1),
       check('Show viewer comments', 'comments'), check('Keep the clip as a video file', 'record'));
     return wrap;
+  }
+
+  /** A slider for one of the settings. Sliders for the same setting on different screens stay in step. */
+  private rangeRow(label: string, key: 'volume' | 'sensitivity' | 'motion', min: number, max: number): HTMLElement {
+    const row = el('label', 'field');
+    row.append(el('span', 'field-label', label));
+    const input = el('input');
+    input.type = 'range';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = '0.05';
+    input.value = String(this.settings[key]);
+    input.dataset.setting = key;
+    input.addEventListener('input', () => {
+      this.settings[key] = Number(input.value);
+      if (key === 'motion') this.settings.motionChosen = true;
+      document.querySelectorAll<HTMLInputElement>(`input[data-setting="${key}"]`).forEach((other) => {
+        if (other !== input) other.value = input.value;
+      });
+      this.actions.settingsChanged();
+    });
+    row.append(input);
+    return row;
   }
 
   private buildPause(): void {
     const box = el('div', 'panel small');
     box.append(el('div', 'logo small', 'Paused'));
+    // the things a player wants to change once they have seen the picture move
+    const comfort = el('div', 'settings open');
+    comfort.append(this.rangeRow('Camera shake', 'motion', 0, 1), this.rangeRow('Turning speed', 'sensitivity', 0.4, 2), this.rangeRow('Sound', 'volume', 0, 1));
+    box.append(comfort);
     const resume = el('button', 'btn primary', 'Carry on');
     resume.addEventListener('click', () => this.actions.resume());
     const again = el('button', 'btn ghost', 'Start over');

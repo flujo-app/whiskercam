@@ -520,7 +520,7 @@ export class Session {
     // a leap
     if (p.airborne) this.wasAir = Math.max(this.wasAir, p.airTime);
     else {
-      if (this.wasAir > 0.55) this.score.add('jump');
+      if (this.wasAir > 0.5) this.score.add('jump');
       this.wasAir = 0;
     }
   }

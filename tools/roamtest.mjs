@@ -136,14 +136,35 @@ const report = await page.evaluate(({ only, extra }) => {
       const tap = run({ jump: true }, 1.2);
       put(open[0], open[1], 90);
       const hold = run({ jump: true, jumpHeld: true }, 1.4);
+      // a pounce: get up to speed, press, and measure the leap itself (height, length, time in the air)
+      const pounce = (c) => {
+        put(open[0], open[1], 90);
+        run(c, 1.3);
+        const m = { y0: p.y, top: 0, from: null, len: 0, air: 0 };
+        run({ ...c, jump: true, jumpHeld: true }, 1.0, () => {
+          if (p.airborne) {
+            m.from ??= [p.x, p.z];
+            m.air++;
+            m.top = Math.max(m.top, p.y - m.y0);
+            m.len = Math.hypot(p.x - m.from[0], p.z - m.from[1]);
+          }
+        });
+        return m;
+      };
+      const trot = pounce({ move: 1 });
+      const sprint = pounce({ move: 1, sprint: true });
       put(open[0], open[1], 90);
       const leap = run({ move: 1, sprint: true }, 1.2);
-      const far = run({ move: 1, sprint: true, jump: true, jumpHeld: true }, 1.2);
-      note('jump', tap.top - tap.y0 > 0.3 && tap.top - tap.y0 < 0.85, `a tap jumps ${(tap.top - tap.y0).toFixed(2)} m (want 0.3 to 0.85)`);
-      note('jump', hold.top - hold.y0 > 1.05 && hold.top - hold.y0 < 1.5, `holding jumps ${(hold.top - hold.y0).toFixed(2)} m (want 1.05 to 1.5)`);
-      note('jump', far.dist > 3 && far.dist < 9.5, `a running jump carries ${far.dist.toFixed(2)} m in 1.2 s (want 3 to 9.5)`);
+      const h = (v) => v.toFixed(2);
+      note('jump', tap.top - tap.y0 > 0.2 && tap.top - tap.y0 < 0.5, `a tap from a standstill jumps ${h(tap.top - tap.y0)} m (want 0.2 to 0.5)`);
+      note('jump', hold.top - hold.y0 > 0.7 && hold.top - hold.y0 < 0.95, `holding from a standstill jumps ${h(hold.top - hold.y0)} m (want 0.7 to 0.95)`);
+      note('jump', trot.top > 0.3 && trot.top < 0.55, `a pounce at a trot rises ${h(trot.top)} m (want 0.3 to 0.55)`);
+      note('jump', trot.len > 1.5 && trot.len < 2.5, `a pounce at a trot carries ${h(trot.len)} m (want 1.5 to 2.5)`);
+      note('jump', trot.air / 60 > 0.28 && trot.air / 60 < 0.5, `a pounce at a trot is ${h(trot.air / 60)} s in the air (want 0.28 to 0.5)`);
+      note('jump', sprint.top < 0.55, `a pounce at a sprint rises ${h(sprint.top)} m (want under 0.55)`);
+      note('jump', sprint.len > 2.6 && sprint.len < 3.9, `a pounce at a sprint carries ${h(sprint.len)} m (want 2.6 to 3.9)`);
       note('jump', leap.jerk < 0.03, `sprinting on flat ground moves the lens ${(leap.jerk * 100).toFixed(1)} cm in one step`);
-      kinds.jump.heights = { tap: +(tap.top - tap.y0).toFixed(2), hold: +(hold.top - hold.y0).toFixed(2), runningJump: +far.dist.toFixed(2) };
+      kinds.jump.heights = { tap: +h(tap.top - tap.y0), hold: +h(hold.top - hold.y0), pounce: +h(trot.top), pounceLength: +h(trot.len), sprintPounceLength: +h(sprint.len) };
     }
   }
 
@@ -255,7 +276,7 @@ const report = await page.evaluate(({ only, extra }) => {
           }
         });
         closest(r, `car at ${x.toFixed(1)}, ${z.toFixed(1)} from the ${name}`);
-        note('car', r.top - y0 > 0.45 && r.near > 0.03, `car at ${x.toFixed(1)}, ${z.toFixed(1)} from the ${name}: got ${(r.top - y0).toFixed(2)} m up${r.mantled ? ' (scrambled)' : ''}, lens came within ${(r.near * 100).toFixed(1)} cm`);
+        note('car', r.top - y0 > 0.6 && r.near > 0.03, `car at ${x.toFixed(1)}, ${z.toFixed(1)} from the ${name}: got ${(r.top - y0).toFixed(2)} m up${r.mantled ? ' (scrambled)' : ''}, lens came within ${(r.near * 100).toFixed(1)} cm`);
       }
       // underneath, nose to tail (between the wheels)
       const sx = x + nx * 3.6;
