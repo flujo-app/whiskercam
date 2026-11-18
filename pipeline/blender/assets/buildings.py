@@ -790,6 +790,26 @@ class Bld:
             p1 = [max(c[i] for c in cs) for i in range(3)]
         self.col.add(box(p0, p1, "col"))
 
+    def collide_bump(self, fac: Fac, x0: float, x1: float, depth: float, z0: float, z1: float, top_slope: float = 0.0) -> None:
+        """Invisible collision for something small that stands off a wall (a pipe, a tap): a wedge with
+        sloping sides, so a cat sliding along the wall is steered round it instead of running into a flat face.
+        `depth` is how far it stands out; `top_slope` > 0 also slopes the top down towards the front."""
+        c = depth                      # 45 degree sides
+        foot = [(x0 - c, 0.0), (x1 + c, 0.0), (x1, -depth), (x0, -depth)]
+        zt = [z1, z1, z1 - top_slope, z1 - top_slope]
+        g = G()
+        lo = [fac.world(x, y, z0) for x, y in foot]
+        hi = [fac.world(x, y, z) for (x, y), z in zip(foot, zt)]
+        g.poly(hi, "col")
+        g.poly(lo[::-1], "col")
+        for i in range(4):
+            j = (i + 1) % 4
+            g.poly([lo[i], lo[j], hi[j], hi[i]], "col")
+        self.col.add(g)
+        mid = fac.world((x0 + x1) / 2, 0.0, z0)
+        out = fac.world((x0 + x1) / 2, -1.0, z0) - mid
+        geo.poi("pipe", mid.x, mid.y, out.x, out.y)
+
     def place_ph(self, ph_id, fac: Fac, x, y, z, rot=0.0) -> None:
         self.ph.append((ph_id, fac.world(x, y, z), fac.th + rot))
 
@@ -895,7 +915,9 @@ def downpipe(B: Bld, fac: Fac, x, z_top, grade, hopper=True, r=0.05) -> None:
         gg.add(box((xx - 0.007, gc.y - 0.13, grade + 0.019), (xx + 0.007, gc.y + 0.13, grade + 0.03), "grate",
                    skip=("-z",)))
     B.put(gg, fac.m, 0.0)
-    B.collide(fac, (x - 0.07, yp - 0.2, grade - 0.1), (x + 0.07, 0.0, grade + 1.4))
+    # the pipe itself, and lower down the shoe that sticks out further (low enough to step over)
+    B.collide_bump(fac, x - r, x + r, -yp + r + 0.01, grade - 0.1, grade + 2.4)
+    B.collide_bump(fac, x - r - 0.01, x + r + 0.01, -(shoe_end.y - r) + 0.01, grade - 0.1, grade + 0.2, top_slope=0.1)
 
 
 def cable_duct(B: Bld, fac: Fac, x, z0, z1, into_wall=True) -> None:
@@ -1138,7 +1160,11 @@ def _entrance(B: Bld, F: Fac, ex, DZ, grade, FFL, floors, split, top, rng) -> No
     B.collide(F, (ex - SW, -LD, grade - 0.2), (ex + SW, 0.0, DZ))
     for i in range(1, nst):
         B.collide(F, (ex - SW, -LD - i * 0.32, grade - 0.2), (ex + SW, -LD, DZ - i * rise))
-    B.collide(F, (hx - 0.03, yb - 0.25, grade), (hx + 0.03, 0.0, za + 0.03))
+    top_of_steps = F.world(ex - 0.5, -LD + 0.4, DZ)
+    down = F.world(ex - 0.5, -LD - 1.0, DZ) - F.world(ex - 0.5, -LD, DZ)
+    geo.poi("steps", top_of_steps.x, top_of_steps.y, down.x, down.y)
+    for yy, zt in ((ya, za), ((ya + yb) / 2, (za + zb) / 2), (yb, zb)):
+        B.collide(F, (hx - 0.03, yy - 0.03, grade - 0.1), (hx + 0.03, yy + 0.03, zt))
 
 
 def _balcony(B: Bld, fac: Fac, bx0, bx1, zf, D, rng, alt=False) -> None:
@@ -1403,7 +1429,8 @@ def _gutter_pipe(B: Bld, fac: Fac, x, ZE, grade) -> None:
         gg.add(box((xx - 0.006, gc[1] - 0.11, grade + 0.021), (xx + 0.006, gc[1] + 0.11, grade + 0.031), "grate",
                    skip=("-z",)))
     B.put(gg, fac.m, 0.0)
-    B.collide(fac, (x - 0.06, yp - 0.2, grade - 0.1), (x + 0.06, 0.0, grade + 1.4))
+    B.collide_bump(fac, x - r, x + r, -yp + r + 0.01, grade - 0.1, grade + 2.4)
+    B.collide_bump(fac, x - r - 0.01, x + r + 0.01, -yp + r + 0.16, grade - 0.1, grade + 0.2, top_slope=0.1)
 
 
 # =====================================================================================================

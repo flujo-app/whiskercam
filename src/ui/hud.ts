@@ -53,6 +53,9 @@ export class Hud {
   private readonly duelThem = el('div', 'bar-fill them');
   private readonly duelName = el('span', 'duel-name');
   private readonly duelKeys = el('div', 'duel-keys');
+  private readonly duelHelp = el('div', 'duel-help');
+  private readonly breath = el('div', 'breath');
+  private readonly breathFill = el('div', 'breath-fill');
   private readonly flash = el('div', 'flash');
   private readonly touch = el('div', 'touch');
   private readonly stick = el('div', 'stick');
@@ -84,7 +87,9 @@ export class Hud {
     top.append(this.rec, this.battery);
 
     this.views.append(this.eye(), this.viewsNum, this.hype);
-    this.duel.append(this.bar('You', this.duelYou), this.bar('', this.duelThem, this.duelName), this.duelKeys);
+    this.duel.append(this.bar('You', this.duelYou), this.bar('', this.duelThem, this.duelName), this.duelKeys, this.duelHelp);
+    this.duelHelp.textContent = touchDevice ? 'paw buttons: slap  ·  Jump button: pull back' : 'click or Q / E: slap  ·  S or Space: pull back';
+    this.breath.append(this.breathFill);
     this.stick.append(this.knob);
     this.touch.append(this.stick, this.touchButton('pawLeft', 'Left paw', 'paw-l'), this.touchButton('pawRight', 'Right paw', 'paw-r'), this.touchButton('jump', 'Jump', 'jump'));
     if (!touchDevice) this.touch.style.display = 'none';
@@ -92,7 +97,7 @@ export class Hud {
     this.buildTitle(touchDevice);
     this.buildPause();
     this.buildEnd();
-    this.root.append(top, this.views, this.turf, this.popups, this.comments, this.hint, this.duel, this.touch, this.flash, this.title, this.pause, this.end);
+    this.root.append(top, this.views, this.breath, this.turf, this.popups, this.comments, this.hint, this.duel, this.touch, this.flash, this.title, this.pause, this.end);
     this.show('title');
   }
 
@@ -318,7 +323,7 @@ export class Hud {
     this.show('end');
   }
 
-  update(session: Session, dt: number, touchDuel: boolean): void {
+  update(session: Session, dt: number, _touch: boolean): void {
     // end-screen count-up
     if (this.screen === 'end' && this.endCount < this.endTarget) {
       this.endCount = Math.min(this.endTarget, this.endCount + Math.max(40, this.endTarget * dt * 0.7));
@@ -377,9 +382,27 @@ export class Hud {
       const d = session.duel!;
       const open = d.rivalState === 'recover' || d.rivalState === 'stagger';
       const danger = d.rivalState === 'windup' || d.rivalState === 'feint' || d.rivalState === 'strike';
-      this.duelKeys.textContent = danger ? (touchDuel ? 'Pull back!' : 'S: pull back!') : open ? 'Now! Slap!' : touchDuel ? 'Tap a paw to slap' : 'Click to slap';
-      this.duelKeys.className = `duel-keys${danger ? ' danger' : open ? ' open' : ''}`;
+      const puffed = d.stamina < 0.16;
+      // The prompt teaches the rhythm: wait, pull back when the paw comes up, hit back while it is off balance.
+      let text = puffed ? 'Catch your breath' : 'Wait for the paw';
+      let mood = '';
+      if (d.playerState === 'parried') {
+        text = 'Batted away!';
+        mood = ' danger';
+      } else if (danger) {
+        text = 'Pull back!';
+        mood = ' danger';
+      } else if (open || d.rivalWinded) {
+        text = puffed ? 'Out of breath' : d.rivalWinded && !open ? 'It is out of breath: slap!' : 'Now! Slap!';
+        mood = puffed ? '' : ' open';
+      }
+      this.duelKeys.textContent = text;
+      this.duelKeys.className = `duel-keys${mood}`;
     }
+    // breath: shown while it is in use, fades away once it is full again
+    const breath = session.stamina;
+    this.breathFill.style.width = `${Math.round(breath * 100)}%`;
+    this.breath.className = `breath${breath < 0.999 || inDuel ? ' on' : ''}${breath < 0.2 ? ' low' : ''}`;
     this.flash.style.opacity = String(session.flash * 0.55);
     this.root.classList.toggle('dying', session.phase === 'ending');
   }

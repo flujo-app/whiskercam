@@ -19,6 +19,8 @@ from wc import geo, mat, paths, ph
 
 SPRITES = paths.BUILD / "export" / "sprites"
 HEDGE_DENSITY = 80.0     # cards per square metre of hedge surface
+HEDGE_INSIDE = 34.0      # looser cards per cubic metre inside the hedge
+HEDGE_STEMS = 9.0        # woody stems per square metre of hedge floor
 UP = Vector((0.0, 0.0, 1.0))
 
 
@@ -119,9 +121,70 @@ def build_hedge(name: str, foot: Polygon, height: float, coll=None, seed: int = 
         made += 1
         bump = math.sin(x * 3.1) * math.cos(y * 2.7) * 0.025     # clipped, but not laser-flat
         place(Vector((x, y, height + bump)), UP)
+    # the inside: a hedge is not hollow. Looser leaves all through it, and woody stems coming up from the ground.
+    inner = foot.buffer(-0.1)
+    if not inner.is_empty and height > 0.4:
+        ix0, iy0, ix1, iy1 = inner.bounds
+        want = int(inner.area * (height - 0.2) * HEDGE_INSIDE)
+        made = tries = 0
+        while made < want and tries < want * 30:
+            tries += 1
+            x, y = rng.uniform(ix0, ix1), rng.uniform(iy0, iy1)
+            if not inner.contains(Point(x, y)):
+                continue
+            made += 1
+            z = rng.uniform(0.1, height - 0.1)
+            face = Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-0.6, 1))).normalized()
+            _card(verts, faces, uvs, normals, Vector((x, y, z)), face, rng.uniform(0.15, 0.27), UP, rng)
+        _hedge_stems(name, inner, height, coll, rng)
     if not faces:
         return None
     return _cards_object(name, verts, faces, uvs, normals, leaf_material("hedge"), coll)
+
+
+def _hedge_stems(name: str, inner: Polygon, height: float, coll, rng: random.Random) -> None:
+    """Thin woody stems inside a hedge: what a cat sees when it pushes in."""
+    import bmesh
+
+    x0, y0, x1, y1 = inner.bounds
+    want = int(inner.area * HEDGE_STEMS)
+    bm = bmesh.new()
+
+    def stem(a: Vector, b: Vector, ra: float, rb: float) -> None:
+        axis = (b - a).normalized()
+        ref = UP if abs(axis.z) < 0.9 else Vector((1.0, 0.0, 0.0))
+        u = axis.cross(ref).normalized()
+        v = axis.cross(u)
+        lo = [bm.verts.new(a + (u * math.cos(k * math.tau / 4) + v * math.sin(k * math.tau / 4)) * ra) for k in range(4)]
+        hi = [bm.verts.new(b + (u * math.cos(k * math.tau / 4) + v * math.sin(k * math.tau / 4)) * rb) for k in range(4)]
+        for k in range(4):
+            bm.faces.new((lo[k], lo[(k + 1) % 4], hi[(k + 1) % 4], hi[k]))
+        bm.faces.new(hi[::-1])
+
+    made = tries = 0
+    while made < want and tries < want * 30:
+        tries += 1
+        x, y = rng.uniform(x0, x1), rng.uniform(y0, y1)
+        if not inner.contains(Point(x, y)):
+            continue
+        made += 1
+        r = rng.uniform(0.006, 0.014)
+        top = height * rng.uniform(0.55, 0.92)
+        lean = Vector((rng.uniform(-0.16, 0.16), rng.uniform(-0.16, 0.16), 1.0)).normalized()
+        foot_p = Vector((x, y, 0.02))
+        mid = foot_p + lean * (top * rng.uniform(0.35, 0.6))
+        tip = foot_p + lean * top + Vector((rng.uniform(-0.05, 0.05), rng.uniform(-0.05, 0.05), 0.0))
+        stem(foot_p, mid, r, r * 0.8)
+        stem(mid, tip, r * 0.8, r * 0.4)
+        side = Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(0.4, 1.0))).normalized()
+        stem(mid, mid + side * rng.uniform(0.18, 0.36), r * 0.6, r * 0.3)
+    if not bm.faces:
+        bm.free()
+        return
+    obj = geo.bm_to_object(bm, f"{name}_stems", mat.get("bark"), coll)
+    geo.uv_box(obj)
+    geo.shade_auto(obj, 60.0)
+    geo.tag(obj, role="foliage", collide="none")
 
 
 # ---------------------------------------------------------------- trees
@@ -152,8 +215,11 @@ def _tree_wood() -> bpy.types.Object:
 
 
 def build_tree(name: str, loc, height: float = 9.0, rot_z_deg: float = 0.0, coll=None, seed: int = 0,
-               cards: int = 2300) -> list[bpy.types.Object]:
-    """A tree: real scanned trunk and branches, crown made of leaf cards where the scan had leaves."""
+               cards: int = 2300, keep=None) -> list[bpy.types.Object]:
+    """A tree: real scanned trunk and branches, crown made of leaf cards where the scan had leaves.
+
+    keep: optional test `keep(point) -> bool`; leaf cards whose centre fails it are left out (used to stop the
+    crowns of trees outside the estate from poking through its walls)."""
     from mathutils import Matrix
 
     rng = random.Random(seed * 131 + 7)
@@ -185,17 +251,45 @@ def build_tree(name: str, loc, height: float = 9.0, rot_z_deg: float = 0.0, coll
         p_local = Vector(pts[i].tolist())
         out = (p_local - Vector((centre_local.x, centre_local.y, centre_local.z * 0.75))).normalized()
         world_p = xform @ p_local
+        if keep is not None and not keep(world_p):
+            continue
         world_n = (xform.to_3x3() @ out).normalized()
         tilt = Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-0.3, 1.2)))
         face = (world_n * 0.5 + tilt.normalized() * 0.8).normalized()
         _card(verts, faces, uvs, normals, world_p, face, rng.uniform(1.25, 1.9) * s, world_n, rng)
     crown = _cards_object(f"{name}_crown", verts, faces, uvs, normals, leaf_material("tree"), coll)
-    base = Vector(loc)
-    trunk = geo.cylinder(f"{name}_col", max(0.08, trunk_r * 0.85), base, base + Vector((0, 0, min(2.5, height * 0.3))), None, coll,
-                         segments=8)
-    geo.tag(trunk, role="collider", collide="mesh", surface="wood")
-    trunk.hide_render = True
-    return [wood, crown, trunk]
+    # The trunk itself, measured above the spreading roots (the collision shape used to be as wide as the
+    # roots: an invisible half-metre drum round every tree).
+    low = co[(co[:, 2] >= 0.45) & (co[:, 2] < 1.1)]
+    if len(low) >= 3:
+        tx, ty = float(low[:, 0].mean()), float(low[:, 1].mean())
+        trunk_local = float(np.percentile(np.hypot(low[:, 0] - tx, low[:, 1] - ty), 90))
+    else:
+        tx, ty, trunk_local = fx, fy, 0.2
+    trunk_local = min(max(trunk_local, 0.16), 0.4)
+    # How far up is it one clean trunk? Up to there the cat can climb it; where the first big branches leave,
+    # a small invisible ledge lets it sit in the fork.
+    rad = np.hypot(co[:, 0] - tx, co[:, 1] - ty)
+    near = rad < 1.3
+    fork = full_h * 0.22
+    for zc in np.arange(1.2, full_h * 0.5, 0.2):
+        sel = near & (co[:, 2] >= zc) & (co[:, 2] < zc + 0.2)
+        if sel.sum() >= 3 and float(rad[sel].max()) > 0.55:
+            fork = float(zc)
+            break
+    top = min(max(fork * s, 1.5), 5.5)
+    base = xform @ Vector((tx, ty, 0.0))
+    base.z = Vector(loc).z
+    r_col = max(0.07, trunk_local * s * 1.05)
+    trunk = geo.cylinder(f"{name}_col", r_col, base, base + Vector((0, 0, top)), None, coll, segments=10)
+    perch = geo.cylinder(f"{name}_perch", max(0.28, r_col + 0.16), base + Vector((0, 0, top - 0.04)), base + Vector((0, 0, top)),
+                         None, coll, segments=10)
+    for o in (trunk, perch):
+        geo.tag(o, role="collider", collide="mesh", surface="wood")
+        o.hide_render = True
+    trunk["wc_perch"] = round(top, 2)
+    trunk["wc_trunk"] = [round(base.x, 3), round(base.y, 3), round(r_col, 3)]
+    return [wood, crown, trunk, perch]
 
 
 # ---------------------------------------------------------------- weeds and tufts

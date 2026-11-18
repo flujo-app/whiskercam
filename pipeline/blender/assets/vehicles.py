@@ -1202,13 +1202,18 @@ def _colliders(name, S, W, coll):
     belt = max(r[2] for r in rows)
     roof = max(r[3] for r in rows) - 0.01
     cab = [r for r in rows if r[3] > r[2] + 0.25]
-    out = [geo.boxes(f"{name}_col_body", [((-hw, rows[0][0], zb), (hw, rows[-1][0], belt + 0.03)),
-                                          ((-hw * 0.82, cab[0][0], belt), (hw * 0.82, cab[-1][0], roof))], None, coll)]
-    zc = W["Ro"] - FLAT
+    # The body you see is this cage smoothed twice; smoothed once it sits just outside the paintwork everywhere.
+    # So the cat (and its camera) is stopped at the real shape: it can walk up the bonnet and over the roof,
+    # and can no longer push its lens inside the cabin, which two plain boxes allowed.
+    shell = geo.bm_to_object(_cc(_cage(S), 1), f"{name}_col_body", None, coll)
+    out = [shell]
+    # The wheels only need a shape where they stick out below the body. (Solid shapes that overlap confuse the
+    # game's test for "is this point inside something", and the body shell already covers the rest of the wheel.)
+    low = min(v.co.z for v in shell.data.vertices) + 0.012
+    half = W["Ro"] * 0.86
     for i, (y, s) in enumerate(((S["yf"], 1), (S["yf"], -1), (S["yr"], 1), (S["yr"], -1))):
         x = s * S["track"]
-        out.append(geo.cylinder(f"{name}_col_wheel{i}", W["Ro"], (x - W["Wt"] / 2, y, zc), (x + W["Wt"] / 2, y, zc),
-                                None, coll, segments=12))
+        out.append(geo.box(f"{name}_col_wheel{i}", (x - W["Wt"] / 2, y - half, 0.0), (x + W["Wt"] / 2, y + half, low), None, coll))
     for o in out:
         o.hide_render = True
     geo.tag(out, role="collider", collide="mesh")
@@ -1657,8 +1662,8 @@ def build_bicycle(name: str, color_mat: str, coll=None, seed: int = 0) -> list[b
     parts = [_finish(frame, f"{name}_frame", mm, coll, angle=40.0), _finish(wheels, f"{name}_wheels", wm, coll, angle=40.0)]
     geo.tag(parts, role="vehicle", collide="none", lm=1.0)
     cb = bmesh.new()
-    _bar(cb, (0.0, -0.93, 0.52), (0.0, 0.99, 0.52), 0.09, 1.04)
-    _bar(cb, (-0.33, 0.29, 1.05), (0.33, 0.29, 1.05), 0.22, 0.12)
+    for axle in (RA, FA):
+        _bar(cb, (0.0, axle.y - R, R), (0.0, axle.y + R, R), 0.07, 2 * R)
     cb.transform(lean)
     col = geo.bm_to_object(cb, f"{name}_col", None, coll)
     col.hide_render = True

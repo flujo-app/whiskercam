@@ -132,14 +132,27 @@ def load(ph_id: str) -> list[bpy.types.Object]:
 
 
 def bounds(objs) -> tuple[Vector, Vector]:
-    lo = Vector((1e9, 1e9, 1e9))
-    hi = Vector((-1e9, -1e9, -1e9))
+    """Lowest and highest corner of the objects, measured on their real vertices.
+
+    (An object's stored bounding box is only refreshed when Blender redraws it; for library models that never
+    happens, and a model whose parts had their own offsets was then set down 30 cm above the ground.)
+    """
+    import numpy as np
+
+    lo = np.full(3, 1e9)
+    hi = np.full(3, -1e9)
     for obj in objs:
-        for corner in obj.bound_box:
-            p = obj.matrix_world @ Vector(corner)
-            lo = Vector(map(min, lo, p))
-            hi = Vector(map(max, hi, p))
-    return lo, hi
+        n = len(obj.data.vertices)
+        if n == 0:
+            continue
+        co = np.empty(n * 3, dtype=np.float32)
+        obj.data.vertices.foreach_get("co", co)
+        co = co.reshape(n, 3)
+        m = np.array(obj.matrix_world, dtype=np.float64)
+        w = co @ m[:3, :3].T + m[:3, 3]
+        lo = np.minimum(lo, w.min(axis=0))
+        hi = np.maximum(hi, w.max(axis=0))
+    return Vector(lo.tolist()), Vector(hi.tolist())
 
 
 def place(ph_id: str, loc, rot_z_deg: float = 0.0, scale: float = 1.0, coll=None, part: str | None = None,

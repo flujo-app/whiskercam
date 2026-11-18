@@ -280,6 +280,8 @@ class Dresser:
             name = f"{kind}_{key}"
             if kind == "car":
                 parts = vehicles.build_car(name, key.split("_")[0], colour, self.coll, seed=seed)
+                # for the movement tests: where the car is and which way its nose points
+                geo.poi("car", x, y, -math.sin(math.radians(rot)), math.cos(math.radians(rot)))
             elif kind == "scooter":
                 parts = vehicles.build_scooter(name, colour, self.coll, seed=seed)
             else:
@@ -295,10 +297,10 @@ class Dresser:
                                 (5, "micro", "car_blue"), (8, "hatch", "car_grey"), (10, "sedan", "car_black")):
             park("car", f"{style}_port{k}", paint, 42.15 + self.rng.uniform(-0.2, 0.25), -14.0 + (k + 0.5) * bay, 90.0, k)
         # along the kerb of the ring road, well clear of its centre line
-        park("car", "sedan_south", "car_blue", -19.5, -20.05, -90.0, 21)
-        park("car", "micro_south", "car_white", 12.5, -20.2, 90.0, 22)
-        park("car", "van_north", "car_grey", -9.0, 20.0, 90.0, 23)
-        park("car", "hatch_west", "car_silver", -38.05, 9.5, 0.0, 24)
+        park("car", "sedan_south", "car_blue", -19.5, -19.72, -90.0, 21)
+        park("car", "micro_south", "car_white", 12.5, -19.9, 90.0, 22)
+        park("car", "van_north", "car_grey", -9.0, 19.68, 90.0, 23)
+        park("car", "hatch_west", "car_silver", -37.72, 9.5, 0.0, 24)
         # scooters on the pavement and by the racks, bikes at the racks
         park("scooter", "south", "paint_red", 9.2, -22.75, 96.0, 31)
         park("scooter", "pad_a", "paint_white", 24.6, 26.1, 172.0, 32)

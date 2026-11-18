@@ -26,16 +26,17 @@ export class Bot {
   }
 
   controls(dt: number): Controls {
-    const c: Controls = { move: 0, turn: 0, yaw: 0, pitch: 0, sprint: false, jump: false, pawLeft: false, pawRight: false, dodge: false, pause: false, any: false };
+    const c: Controls = { move: 0, turn: 0, yaw: 0, pitch: 0, sprint: false, jump: false, jumpHeld: true, pawLeft: false, pawRight: false, dodge: false, pause: false, any: false };
     const s = this.game.session;
     const p = this.game.player;
 
     if (s.phase === 'duel' && s.duel) {
       const d = s.duel;
-      const danger = (d.rivalState === 'windup' || d.rivalState === 'feint') && d.rivalT > d.tuning.windup - 0.3;
+      // wait, pull back when the paw comes up, hit back while it is off balance (flailing loses)
+      const danger = (d.rivalState === 'windup' || d.rivalState === 'feint') && d.rivalT > d.windupLen - 0.3;
       if (d.playerState === 'ready') {
         if (danger) c.dodge = true;
-        else if (d.rivalState === 'recover' || (d.rivalState === 'windup' && d.rivalT < 0.12)) c.pawLeft = true;
+        else if ((d.rivalState === 'recover' || d.rivalState === 'stagger') && d.stamina >= 0.16) c.pawLeft = true;
       }
       return c;
     }
