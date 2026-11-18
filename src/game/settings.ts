@@ -11,6 +11,8 @@ export interface Settings {
   sensitivity: number;
   /** how much the camera bobs and shakes, 0 .. 1 */
   motion: number;
+  /** the player has moved the shake slider (until then the device decides) */
+  motionChosen: boolean;
   comments: boolean;
   record: boolean;
   best: number;
@@ -25,7 +27,8 @@ export const defaults: Settings = {
   quality: 2,
   volume: 0.8,
   sensitivity: 1,
-  motion: 1,
+  motion: 0.5,
+  motionChosen: false,
   comments: true,
   record: true,
   best: 0,
@@ -48,6 +51,15 @@ export function saveSettings(s: Settings): void {
   } catch {
     // nothing to do: the game works without remembering
   }
+}
+
+/**
+ * How much camera shake a player gets who has not chosen: a steady picture on a big screen, steadier still on a
+ * phone (small screen, held in the hand), and nearly none where the device asks for reduced motion.
+ */
+export function defaultMotion(touch: boolean): number {
+  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return 0;
+  return touch ? 0.3 : 0.5;
 }
 
 /** Render scale for each quality step. */

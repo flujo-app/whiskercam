@@ -701,7 +701,8 @@ input[type='checkbox'] {
   padding: calc(var(--u) * 0.6);
 }
 
-.settings[open] {
+.settings[open],
+.settings.open {
   display: flex;
   flex-direction: column;
   gap: calc(var(--u) * 1.1);

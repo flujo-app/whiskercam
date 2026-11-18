@@ -182,6 +182,8 @@ export class Game {
     this.input.mouseSensitivity = 0.11 * s.sensitivity;
     this.input.touchSensitivity = 0.28 * s.sensitivity;
     this.player.motion = s.motion;
+    // a steadier camera also smears less when it turns
+    this.post.look.shutter = (0.6 + 0.4 * s.motion) / 60;
     this.setPlayerCoat(s.coat);
     this.audio.setVolume(s.volume);
   }
@@ -319,7 +321,8 @@ export class Game {
     const steps = Math.max(1, Math.round(seconds / STEP));
     for (let i = 0; i < steps; i++) {
       this.update(decide(STEP));
-      if (i % drawEvery === 0) this.render(STEP * drawEvery);
+      // (never a longer step than a slow frame: the cat's springs take small steps through whatever they are given)
+      if (i % drawEvery === 0) this.render(Math.min(STEP * drawEvery, 0.1));
     }
   }
 

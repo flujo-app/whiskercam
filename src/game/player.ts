@@ -13,10 +13,16 @@ export const SPEED = { walk: 1.3, trot: 3.3, run: 7.6, back: 0.9, crouch: 1.5, h
 
 /** How the cat jumps and climbs. Heights in metres, times in seconds. */
 export const JUMP = {
-  /** take-off speed of a full jump: about 1.25 m high when the button is held */
-  speed: 6.7,
-  /** letting go of the button early drops the upward speed to this: a short hop of about half a metre */
-  cutTo: 2.4,
+  /** take-off speed of a pounce, the leap of a cat that is on the move: low (about 0.43 m), long and quick */
+  pounce: 4.5,
+  /** take-off speed from a standstill, when the button is held: about 0.85 m straight up */
+  speed: 6.4,
+  /** the most it puts into a leap, and only when it sees something to land on: about 1.6 m (a van roof) */
+  most: 8.7,
+  /** letting go of the button early drops the upward speed to this: a short hop */
+  cutTo: 2.2,
+  /** seconds the cat gathers itself before the paws leave the ground */
+  squat: 0.05,
   /** a jump still works this long after running off an edge ... */
   coyote: 0.11,
   /** ... and a press this long before landing is remembered */
@@ -116,8 +122,11 @@ export class Player {
   pullBack = 0;
   tiltUp = 0;
   shake = 0;
-  /** 0..1: how much of the stride bob and shake reaches the camera (comfort setting) */
-  motion = 1;
+  /**
+   * 0..1: how much of the stride bob and shake reaches the camera (comfort setting). 0.5 is a camera that
+   * steadies itself the way current action cameras do; 1 is the raw, rattling collar camera.
+   */
+  motion = 0.5;
   /** seconds in the air during the current jump (0 on the ground) */
   airTime = 0;
 
@@ -269,8 +278,9 @@ export class Player {
     }
     if (this.crouch > 0.3) target = clamp(target, -SPEED.back, SPEED.crouch);
     if (this.inHedge) target = clamp(target, -SPEED.back, SPEED.hedge);
-    // less say over the speed in mid-air
-    const accel = (Math.abs(target) > Math.abs(this.speed) ? 10 : 16) * (body.grounded ? 1 : 0.45);
+    // less say over the speed in mid-air, and a leap keeps its pace while the stick stays forward
+    const slowing = Math.abs(target) < Math.abs(this.speed);
+    const accel = (slowing ? 16 : 10) * (body.grounded ? 1 : slowing && c.move > 0.3 ? 0.12 : 0.45);
     const dv = target - this.speed;
     this.speed += clamp(dv, -accel * dt, accel * dt);
 
@@ -281,10 +291,18 @@ export class Player {
     // ---- jumping: a press shortly before landing is remembered, and one just after running off an edge still counts
     this.jumpBuffer = c.jump ? JUMP.buffer : Math.max(0, this.jumpBuffer - dt);
     this.coyote = body.grounded ? JUMP.coyote : Math.max(0, this.coyote - dt);
-    if (this.jumpBuffer > 0 && this.coyote > 0 && k > 0.5 && this.headroom > 0.2) {
-      this.takeOff(JUMP.speed + Math.min(Math.abs(this.speed), SPEED.run) * 0.03, false);
-      // a standing jump with the stick forward goes somewhere
-      if (c.move > 0.3 && this.speed < 2.4) this.speed = 2.4;
+    if (this.squat > 0) {
+      // gathered: off it goes (unless the ground has gone from under it meanwhile)
+      this.squat -= dt;
+      if (this.squat <= 0) {
+        this.squat = 0;
+        if (this.coyote > 0 && k > 0.5 && this.headroom > 0.2) this.leap(fx, fz, c.move);
+      }
+    } else if (this.jumpBuffer > 0 && this.coyote > 0 && k > 0.5 && this.headroom > 0.2) {
+      // the cat gathers itself for an instant first: the lens dips as the body sinks onto the hind legs
+      this.squat = JUMP.squat;
+      this.jumpBuffer = 0;
+      this.landVel -= 0.8;
     }
     if (this.jumping) {
       this.jumpAge += dt;
@@ -431,6 +449,72 @@ export class Player {
     this.updateCamera(dt, v);
   }
 
+  /**
+   * The jump the player asked for. A cat on the move pounces: low, long and fast. From a standstill it jumps
+   * up. And when there is something ahead that it could land on, it puts in exactly what that takes.
+   */
+  private leap(fx: number, fz: number, move: number): void {
+    const pace = clamp(Math.abs(this.speed) / SPEED.trot, 0, 1);
+    let up = lerp(JUMP.speed, JUMP.pounce, pace);
+    if (move > 0.3) {
+      // the push of the hind legs goes forwards too
+      this.speed = Math.min(SPEED.run + 0.6, Math.max(this.speed + 1.4 * pace, lerp(2.4, 4.6, pace)));
+    }
+    let sure = false;
+    if (move > 0.1 && this.speed > 0) {
+      const rise = this.perchAhead(fx, fz, clamp(this.speed * 0.45 + 0.2, 0.7, 3.2));
+      if (rise > 0) {
+        const need = Math.sqrt(2 * GRAVITY.rise * Math.max(0.05, rise - JUMP.reach + 0.14)) * 1.03;
+        if (need <= JUMP.most && need > up) {
+          up = need;
+          sure = true;
+        }
+      }
+    }
+    this.takeOff(up, sure);
+  }
+
+  /**
+   * How high above the paws is the top of the first thing in the way, within `dist` metres, if the cat could
+   * stand on it? 0 when the way is clear, or when what is there is no place to land (a house wall, a lamp post).
+   */
+  private perchAhead(fx: number, fz: number, dist: number): number {
+    const body = this.body;
+    const feet = body.feetY;
+    let near = dist;
+    let found = false;
+    let wood = false;
+    // (along the middle and along both shoulders: a tree trunk is thinner than the cat)
+    for (const side of [0, -0.07, 0.07]) {
+      const ox = body.x - fz * side;
+      const oz = body.z + fx * side;
+      for (const h of [0.32, 0.62, 0.95, 1.3]) {
+        const hit = this.physics.rayHit(ox, feet + h, oz, fx, 0, fz, near);
+        if (hit && Math.abs(hit.ny) < 0.6) {
+          near = hit.toi;
+          found = true;
+          wood = hit.surface === 'wood';
+        }
+      }
+    }
+    // wood is for the claws: the cat leaps at it and climbs
+    if (!found || wood) return 0;
+    // the top just behind that face; if that is a slope (a windscreen, the side of a car), a little further in
+    const from = feet + 1.85;
+    for (const more of [0.1, 0.32, 0.56, 0.82, 1.1]) {
+      const px = body.x + fx * (near + more);
+      const pz = body.z + fz * (near + more);
+      if (this.physics.insideSolid(px, from, pz)) return 0; // taller than any cat jumps
+      const top = this.physics.groundBelow(px, from, pz, 1.85 - JUMP.step);
+      if (!top) return 0;
+      if (top.ny < 0.7) continue;
+      const y = top.y + body.radius + 0.03;
+      if (!this.physics.freeAt(px, y, pz, body.radius) || this.physics.insideSolid(px, top.y + 0.03, pz)) continue;
+      return top.y - feet;
+    }
+    return 0;
+  }
+
   private takeOff(speed: number, auto: boolean): void {
     this.body.jump(speed);
     this.jumping = true;
@@ -438,11 +522,12 @@ export class Player {
     this.autoHop = auto;
     this.jumpBuffer = 0;
     this.coyote = 0;
+    this.squat = 0;
     this.pushing = 0;
     this.bumped = false;
     this.fallSpeed = 0;
-    // the push-off: the lens dips for an instant before it rises
-    this.landVel -= 0.55;
+    // the push-off: the lens dips for an instant before it rises (a requested jump has dipped already)
+    if (auto) this.landVel -= 0.55;
     this.onJump?.();
   }
 
@@ -514,6 +599,8 @@ export class Player {
   private ledgeX = 0;
   private ledgeY = 0;
   private ledgeZ = 0;
+  /** seconds left before a requested jump leaves the ground (0 = none pending) */
+  private squat = 0;
   /** seconds left of the pause after scrambling up onto something narrow (see updateMantle) */
   private perchHold = 0;
   /** direction (unit, on the ground plane) of the wood the cat is braced against, if any */
@@ -781,14 +868,17 @@ export class Player {
     const bobWalk = Math.sin(a * 2) * lerp(0.004, 0.009, moving);
     const bound = (0.5 - 0.5 * Math.cos(a)) ** 1.6;
     const bobGallop = (bound - 0.45) * 0.034;
-    if (grounded) height += lerp(bobWalk, bobGallop, galloping) * moving * (1 - this.crouch * 0.7);
+    // (rock = the quick rocking with every stride, sway = the slow things: leaning into a turn, the dip of a landing)
+    const rock = 0.12 + 0.88 * this.motion ** 1.5;
+    const sway = 0.4 + 0.6 * this.motion;
+    if (grounded) height += lerp(bobWalk, bobGallop, galloping) * moving * (1 - this.crouch * 0.7) * (0.35 + 0.65 * this.motion);
     height += Math.sin(this.time * 1.9) * 0.0016; // breathing
     height += this.land * 0.07;
     if (this.airborne) height += 0.012;
 
     // the lens tips down as the front paws land and comes up in the push-off
     const stride = grounded ? moving : 0;
-    const pitchStride = lerp(Math.sin(a * 2 + 0.6) * 0.9, Math.sin(a + 1.9) * 5.2, galloping) * stride;
+    const pitchStride = lerp(Math.sin(a * 2 + 0.6) * 0.9, Math.sin(a + 1.9) * 4.2, galloping) * stride;
     const rollStride = Math.sin(a) * lerp(2.3, 1.2, galloping) * stride;
     const yawStride = Math.sin(a + 1.1) * 1.1 * stride;
     this.lean = dt > 0 ? smooth(this.lean, clamp(-this.yawRate * v * 0.012, -11, 11), 7, dt) : this.lean;
@@ -817,17 +907,16 @@ export class Player {
     this.climbPitch = dt > 0 ? smooth(this.climbPitch, wantClimb, this.climb ? 7 : 22, dt) : wantClimb;
 
     const basePitch = lerp(-3, -9, run) - 7 * this.crouch;
-    const m = 0.25 + 0.75 * this.motion;
-    this.camPitch = basePitch + this.lookPitch + pitchStride * m + idlePitch + this.land * 26 * m + this.airPitch + this.climbPitch;
-    this.camRoll = (rollStride + this.lean + climbRoll) * m;
-    this.camHeading = this.heading + yawStride * m + this.lookYaw;
+    this.camPitch = basePitch + this.lookPitch + pitchStride * rock + idlePitch + this.land * 22 * sway + this.airPitch + this.climbPitch;
+    this.camRoll = rollStride * rock + (this.lean + climbRoll) * sway;
+    this.camHeading = this.heading + yawStride * rock + this.lookYaw;
 
-    // knocks and scuffles: a quick random jolt that dies away
+    // knocks and scuffles: a short jolt that dies away (mostly a tilt: that is the easiest on the eyes)
     if (this.shake > 0.001) {
-      const s = this.shake * (0.3 + 0.7 * this.motion);
-      this.camPitch += Math.sin(this.time * 71.3) * 3.2 * s;
-      this.camRoll += Math.sin(this.time * 53.7 + 1.3) * 4.5 * s;
-      this.camHeading += Math.sin(this.time * 61.1 + 2.1) * 2.6 * s;
+      const s = this.shake * (0.25 + 0.75 * this.motion);
+      this.camPitch += Math.sin(this.time * 61.3) * 2.0 * s;
+      this.camRoll += Math.sin(this.time * 53.7 + 1.3) * 2.8 * s;
+      this.camHeading += Math.sin(this.time * 47.1 + 2.1) * 1.4 * s;
       this.shake = dt > 0 ? this.shake * Math.exp(-dt * 9) : this.shake;
     }
     this.camPitch += this.tiltUp;

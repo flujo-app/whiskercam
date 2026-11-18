@@ -28,7 +28,7 @@ export interface RayHit {
 }
 
 /** How hard the cat is pulled down: going up, hanging at the top of a jump, coming down (metres per second squared). */
-export const GRAVITY = { rise: 18, hang: 12, fall: 30, hangBand: 1.1, maxFall: 14 } as const;
+export const GRAVITY = { rise: 24, hang: 15, fall: 34, hangBand: 1.0, maxFall: 15 } as const;
 
 /** The solid world: what the cat stands on and bumps into. */
 export class Physics {
