@@ -19,6 +19,8 @@ export interface Settings {
   runs: number;
   /** which set of defaults these were saved under (see `loadSettings`) */
   version: number;
+  /** "auto" (the browser's language) or the code of a language the game speaks */
+  language: string;
 }
 
 const KEY = 'whiskercam.settings.v1';
@@ -36,6 +38,7 @@ export const defaults: Settings = {
   best: 0,
   runs: 0,
   version: 2,
+  language: 'auto',
 };
 
 export function loadSettings(): Settings {

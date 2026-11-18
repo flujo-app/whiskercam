@@ -1,0 +1,210 @@
+import { forms, type Strings } from './en';
+
+const nl: Strings = {
+  locale: 'nl-NL',
+
+  page: {
+    tagline: 'Een dag in de wijk, gefilmd van onder een kattenkin.',
+  },
+
+  boot: {
+    waking: 'De kat wakker porren',
+    unrolling: 'De wijk uitrollen',
+    camera: 'Camera controleren',
+    claws: 'Klauwtjes slijpen',
+    ready: 'Klaar',
+    noWebgl: 'Deze browser kan het spel niet tonen: er is WebGL 2 nodig. Een recente versie van Chrome, Edge, Firefox of Safari werkt wel.',
+    noFloat: 'De graphics van dit apparaat kunnen het spel niet tonen (geen kleurbuffers met hoog bereik). Probeer een andere browser of een ander apparaat.',
+    lost: 'De videokaart heeft het spel laten vallen. Herlaad de pagina om verder te gaan.',
+    failed: 'Starten lukte niet: {why}. Controleer de verbinding en herlaad de pagina.',
+    fileMissing: 'een bestand is niet geladen ({file})',
+    fileMissingPlain: 'een bestand is niet geladen',
+  },
+
+  title: {
+    yourCat: 'Jouw kat',
+    catName: 'Naam van je kat',
+    start: 'Opname starten',
+    goal: 'De camerabatterij gaat drie minuten mee. Zit je broer achterna, gooi dingen om, klim in een boom, verover het terrein. Alles levert weergaven op, en je potje wordt een video die je kunt posten.',
+    howTouch:
+      '<b>Linkerduim</b> rennen en sturen (ver duwen om te sprinten) &nbsp;·&nbsp; <b>rechterkant</b> slepen om rond te kijken &nbsp;·&nbsp; <b>Spring</b> tik voor een sprongetje, houd vast om hoger te springen; staat er een auto of muur voor je neus, dan landt de kat erop &nbsp;·&nbsp; <b>pootjes</b> om te meppen &nbsp;·&nbsp; duw tegen een boom of schutting om te klimmen',
+    howKeys:
+      '<b>W</b> rennen &nbsp;·&nbsp; <b>Shift</b> sprinten &nbsp;·&nbsp; <b>muis</b> of <b>A / D</b> sturen &nbsp;·&nbsp; <b>Spatie</b> tik voor een sprongetje, houd vast om hoger te springen; staat er een auto of muur voor je neus, dan landt de kat erop &nbsp;·&nbsp; <b>klik</b> of <b>Q / E</b> pootjes &nbsp;·&nbsp; <b>F</b> miauwen &nbsp;·&nbsp; duw tegen een boom of schutting om te klimmen &nbsp;·&nbsp; <b>S</b> terugtrekken in een gevecht &nbsp;·&nbsp; <b>Esc</b> pauze',
+    best: 'Beste clip tot nu toe: {views}',
+    about: 'hoe het gemaakt is, credits',
+  },
+
+  coats: {
+    ginger: 'Rood',
+    tabby: 'Cypers',
+    black: 'Zwart',
+    white: 'Wit',
+    grey: 'Grijs',
+    tux: 'Smoking',
+  },
+
+  settings: {
+    heading: 'Instellingen',
+    picture: 'Beeld',
+    faster: 'Sneller',
+    balanced: 'Gebalanceerd',
+    sharpest: 'Scherpst',
+    sound: 'Geluid',
+    turning: 'Draaisnelheid',
+    shake: 'Schuddende camera',
+    comments: 'Reacties van kijkers tonen',
+    record: 'Clip bewaren als video',
+    language: 'Taal',
+    automatic: 'Automatisch',
+  },
+
+  pause: {
+    heading: 'Pauze',
+    resume: 'Verder spelen',
+    restart: 'Opnieuw beginnen',
+    menu: 'Terug naar menu',
+  },
+
+  end: {
+    posted: 'Clip gepost',
+    views: forms({ one: 'weergave', other: 'weergaven' }),
+    likes: forms({ one: 'like', other: 'likes' }),
+    turf: 'Terrein {won} / {all}',
+    best: 'Persoonlijk record',
+    again: 'Nog een keer',
+    menu: 'Menu',
+    save: 'Clip opslaan',
+    share: 'Clip delen',
+    finishing: 'Je clip wordt afgemaakt…',
+    note: 'Je potje is een video, met score en reacties erbij. Post hem als Short, Reel of TikTok.',
+    shareText: '{title}: {views} op Whiskercam. {link}',
+  },
+
+  touch: {
+    left: 'Linkerpoot',
+    right: 'Rechterpoot',
+    jump: 'Spring',
+  },
+
+  duel: {
+    you: 'Jij',
+    helpTouch: 'pootknoppen: meppen  ·  Springknop: terugtrekken',
+    helpKeys: 'klik of Q / E: meppen  ·  S of Spatie: terugtrekken',
+    breathe: 'Even op adem komen',
+    wait: 'Wacht op de poot',
+    batted: 'Weggemept!',
+    pull: 'Terugtrekken!',
+    puffed: 'Buiten adem',
+    rivalPuffed: 'Hij is buiten adem: mep!',
+    now: 'Nu! Meppen!',
+  },
+
+  hints: {
+    follow: 'Volg {name}',
+    tagged: '{name} getikt!',
+    puffed: 'Buiten adem',
+    rivalPuffed: '{name} is buiten adem',
+    backOff: 'Au. Even afstand nemen',
+    battery: 'Batterij bijna leeg',
+    guards: {
+      'the bins': '{name} bewaakt de kliko’s',
+      'the car port': '{name} bewaakt de carport',
+      'the square': '{name} bewaakt het plein',
+      other: '{name} bewaakt dit plekje',
+    },
+    won: {
+      'the bins': 'De kliko’s: nu van jou',
+      'the car port': 'De carport: nu van jou',
+      'the square': 'Het plein: nu van jou',
+      other: 'Dit plekje: nu van jou',
+    },
+  },
+
+  names: {
+    Rocket: 'Rocket',
+    'Big Ginger': 'Dikke Rooie',
+    Duchess: 'Hertogin',
+    'The Colonel': 'De Kolonel',
+  },
+
+  deeds: {
+    tag: '{name} getikt',
+    knock: 'Omgegooid',
+    undercar: 'Onder de auto',
+    hedge: 'Dwars door de heg',
+    zoomies: 'Dolle vijf minuten',
+    jump: 'Grote sprong',
+    counter: 'Als eerste raak',
+    dodge: 'Mooi ontweken',
+    turf: 'Terrein veroverd',
+    flawless: 'Geen schrammetje',
+    lostDuel: 'Op z’n kop gehad',
+    pigeons: 'Duiven verjaagd',
+    meow: 'Hallo gezegd',
+    climb: 'In een boom',
+    mirror: 'Wie is dat nou?',
+  },
+
+  knocks: {
+    pot: 'Pot, dit is de grond',
+    vase: 'Dat was een mooie vaas',
+    gnome: 'Kabouter geveld',
+    can: 'Blikvoetbal',
+    bottle: 'Flessenbowling',
+    ball: 'Bal!',
+    sign: 'Bord plat',
+    lid: 'Klikodeksel: klabam!',
+  },
+
+  ranks: ['Binnenkat', 'Tuinverkenner', 'Straatkat', 'Plaag van de buurt', 'Legende van de wijk', 'Internetberoemd'],
+
+  clipTitle: {
+    pattern: '{name} {deeds}',
+    comma: ', ',
+    and: ' en ',
+    turfAll: 'verovert de hele wijk',
+    turfOne: 'wint een territoriumstrijd',
+    turfTwo: 'wint twee territoriumstrijden',
+    tag: 'pakt eindelijk zijn broer',
+    chase: 'zit zijn snellere broer achterna',
+    knocksMany: 'gooit {n} dingen om',
+    knocksFew: 'gooit een pot van de muur',
+    undercar: 'kruipt onder een auto',
+    quiet: 'maakt een rustig wandelingetje',
+  },
+
+  lines: {
+    idle: [
+      'hij zit zo laag bij de grond', 'die kincam is echt alles', 'waar gaat hij heen', 'heerlijk weertje voor misdaad',
+      'ik hoor het belletje', 'wie heeft dit beest een camera gegeven', 'dit is beter dan tv', 'waarom ben ik zenuwachtig',
+      'kijk die snorharen dan', 'eerste', 'de toewijding', 'kattentaks voldaan',
+    ],
+    chase: ['GAAN GAAN GAAN', 'hij komt dichterbij', 'broers.', 'die gestreepte is te snel', 'benen tot aan z’n oren', 'PAK HEM', 'olympische finale vibes'],
+    tag: ['HEBBES', 'tikkertje, jij bent hem', 'gerechtigheid', 'rocket is kapot', 'hij liet je winnen (niet dus)'],
+    knock: ['NIET DE POT', 'zwaartekracht getest', 'geen gedachten alleen duwen', 'hij keek er eerst naar. met voorbedachten rade.', 'dat gaat iemand betalen', 'klassieker'],
+    gnome: ['DE KABOUTER', 'rust in stukjes kleine man', 'die kabouter had een gezin'],
+    undercar: ['ineens werd het donker', 'onder de auto als een pro', 'katten zijn vloeibaar, bevestigd', 'pas op de uitlaat'],
+    hedge: ['dwars door de heg!!', 'overal blaadjes', 'sluiproute ontgrendeld', 'heg: 0 kat: 1'],
+    zoomies: ['DOLLE VIJF MINUTEN', 'topsnelheid bereikt', 'hou hem tegen', 'hij heeft de snelheid van tien katten'],
+    jump: ['AIRTIME', 'een dikke 10 voor die landing', 'parkour'],
+    slap: ['PATS', 'pats pats pats', 'recht op z’n neus', 'gratis klappen voor iedereen'],
+    counter: ['hij was eerst!!', 'reflexen', 'zag hem van mijlenver aankomen'],
+    dodge: ['matrix moment', 'mis!!', 'te traag'],
+    playerHit: ['au', 'die voelde hij', 'even uitschudden', 'dat was persoonlijk'],
+    turf: ['NIEUWE KONING', 'de kliko’s zijn van ons', 'hij rende weg!!', 'respect verdiend', 'dit is nu zijn wijk'],
+    lostDuel: ['nog een keer', 'pijn', 'die kat traint', 'tactische terugtocht'],
+    battery: ['batterij is bijna leeg neeee', 'niet hier stoppen', 'iemand moet deze kat opladen'],
+    duelStart: ['o nee', 'daar gaan we', 'die ziet er gemeen uit', 'kom maar op', 'oren plat. het is menens.'],
+    pigeons: ['DUIVEN', 'daar heeft hij de hele dag op gewacht', 'chaos'],
+    climb: ['HOE komt hij ooit naar beneden', 'bel de brandweer', 'wat een uitzicht daarboven', 'boomkat', 'hij woont daar nu'],
+    blocked: ['weggemept', 'stop met maaien!!', 'wachten...', 'geduld, kleine tijger'],
+    rivalWinded: ['hij is kapot, GAAN', 'nu nu nu', 'buiten adem lol'],
+    meow: ['hij zei hallo', 'MIAUW', 'kletskous vandaag', 'kan iemand dit vertalen', 'hij roept zijn broer'],
+    mirror: [
+      'HIJ ZIET ZICHZELF', 'wie is die knappe kat', 'die andere kat heeft ook een camera', 'hij snapt niet dat hij het zelf is',
+      'main character energie', 'staarwedstrijd met zichzelf', 'de kat in de deur begon',
+    ],
+  },
+};
+
+export default nl;

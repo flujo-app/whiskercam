@@ -1,3 +1,4 @@
+import { catName, fill, S } from '../i18n';
 import * as THREE from 'three';
 import type { Controls } from '../engine/input';
 import type { Physics } from '../engine/physics';
@@ -159,7 +160,7 @@ export class Session {
     this.phase = 'intro';
     this.battery = RUN_SECONDS;
     this.elapsed = 0;
-    this.say(`Follow ${this.brother.name}`, 4);
+    this.say(fill(S().hints.follow, { name: catName(this.brother.name) }), 4);
     this.sfx.push({ name: 'meow', x: this.brother.x, z: this.brother.z });
     this.brotherTimer = 1.6;
   }
@@ -245,13 +246,13 @@ export class Session {
       if (d < 0.95 && this.tagCool <= 0 && Math.abs(p.speed) > 1.5) {
         this.tags++;
         this.tagCool = 4;
-        this.score.add('tag');
+        this.score.add('tag', b.name);
         this.brotherState = 'tagged';
         this.brotherTimer = 0.9;
         b.look.flinch = 1;
         this.player.shake = 0.5;
         this.sfx.push({ name: 'tag' });
-        this.say(`Tagged ${b.name}!`, 2);
+        this.say(fill(S().hints.tagged, { name: catName(b.name) }), 2);
       }
     } else {
       b.speed += (0 - b.speed) * (1 - Math.exp(-10 * dt));
@@ -283,7 +284,8 @@ export class Session {
     r.npc.look.stance = 'fight';
     r.npc.look.puff = 1;
     this.score.say('duelStart');
-    this.say(`${r.info.name} guards ${r.info.turf}`, 2.2);
+    const guards = S().hints.guards as Record<string, string>;
+    this.say(fill(guards[r.info.turf] ?? guards.other, { name: catName(r.info.name) }), 2.2);
     this.sfx.push({ name: 'hiss', x: r.npc.x, z: r.npc.z });
   }
 
@@ -309,11 +311,11 @@ export class Session {
         this.score.say('blocked');
         break;
       case 'tired':
-        this.say('Out of breath', 1.2);
+        this.say(S().hints.puffed, 1.2);
         this.sfx.push({ name: 'swipe', gain: 0.25 });
         break;
       case 'rivalWinded':
-        this.say(`${r.info.name} is out of breath`, 1.8);
+        this.say(fill(S().hints.rivalPuffed, { name: catName(r.info.name) }), 1.8);
         this.score.say('rivalWinded');
         break;
       case 'whiff':
@@ -337,14 +339,15 @@ export class Session {
         if (e.flawless) this.score.add('flawless');
         r.beaten = true;
         this.duelEnd = 1.1;
-        this.say(`${r.info.turf[0].toUpperCase()}${r.info.turf.slice(1)}: yours now`, 3);
+        const won = S().hints.won as Record<string, string>;
+        this.say(won[r.info.turf] ?? won.other, 3);
         this.sfx.push({ name: 'yowl', x: r.npc.x, z: r.npc.z });
         this.sfx.push({ name: 'win' });
         break;
       case 'lost':
         this.score.add('lostDuel');
         this.duelEnd = 0.9;
-        this.say('Ow. Back off for now', 2.5);
+        this.say(S().hints.backOff, 2.5);
         this.sfx.push({ name: 'lose' });
         break;
       default:
@@ -524,7 +527,7 @@ export class Session {
     // a leap
     if (p.airborne) this.wasAir = Math.max(this.wasAir, p.airTime);
     else {
-      if (this.wasAir > 0.5) this.score.add('jump');
+      if (this.wasAir > 0.62) this.score.add('jump');
       this.wasAir = 0;
     }
   }
@@ -588,7 +591,7 @@ export class Session {
     this.elapsed += dt;
     this.score.update(dt);
     // ran itself out of breath: say so once each time
-    if (this.player.winded && !this.wasWinded && this.phase === 'play') this.say('Out of breath', 1.4);
+    if (this.player.winded && !this.wasWinded && this.phase === 'play') this.say(S().hints.puffed, 1.4);
     this.wasWinded = this.player.winded;
     // stopped to look at the cat in the glass: worth a moment of the clip (once in a while)
     this.mirrorCool = Math.max(0, this.mirrorCool - dt);
@@ -635,7 +638,7 @@ export class Session {
 
     if (this.battery < 20 && !this.warned) {
       this.warned = true;
-      this.say('Battery low', 2.5);
+      this.say(S().hints.battery, 2.5);
       this.score.say('battery');
       this.sfx.push({ name: 'beep' });
     }

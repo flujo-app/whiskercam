@@ -20,6 +20,7 @@ import { Player } from './player';
 import { Props } from './props';
 import { Session, type BrotherInfo, type RivalInfo } from './session';
 import { QUALITY_LINES, QUALITY_SCALE, type Settings } from './settings';
+import { S } from '../i18n';
 
 export interface GameOptions {
   set: string;
@@ -128,12 +129,12 @@ export class Game {
     addEventListener('resize', () => game.layout());
 
     const say = opts.onProgress ?? (() => {});
-    say(0.02, 'Waking the cat');
+    say(0.02, S().boot.waking);
     const maxAniso = Math.min(16, renderer.capabilities.getMaxAnisotropy());
     // phones: pictures at half size or less (a quarter of the memory or less), three at a time
     const memory = (navigator as { deviceMemory?: number }).deviceMemory ?? 4;
     const pictureScale = opts.pictureScale ?? (opts.lean ? (memory <= 4 ? 0.35 : 0.5) : 1);
-    game.world = await loadWorld(opts.set, maxAniso, (done, total) => say(0.05 + (0.75 * done) / total, 'Unrolling the estate'), {
+    game.world = await loadWorld(opts.set, maxAniso, (done, total) => say(0.05 + (0.75 * done) / total, S().boot.unrolling), {
       pictureScale,
       parallel: opts.lean ? 3 : 8,
       lite: opts.lean,
@@ -145,7 +146,7 @@ export class Game {
       await game.world.pictures.whenSharp();
     }
     if (game.world.pictures.failed.length) console.warn('pictures that did not load:', game.world.pictures.failed);
-    say(0.82, 'Checking the camera');
+    say(0.82, S().boot.camera);
     const sky = new Sky(game.world.materials.globals);
     await sky.load(renderer, game.world.base + game.world.info.sky.file, game.world.info.sky.range);
     game.scene.add(game.world.group, sky.mesh);
@@ -155,7 +156,7 @@ export class Game {
       await game.grass.load(game.world.base + game.world.info.kinds.file, game.world.info.kinds);
       game.scene.add(game.grass.mesh);
     }
-    say(0.9, 'Sharpening claws');
+    say(0.9, S().boot.claws);
     game.physics = await Physics.create(game.world.base);
     game.shadows = new LiveShadows(game.world.materials.globals, opts.lean ? 1024 : 2048);
     game.props = await Props.create(game.world, game.physics, game.scene);
@@ -221,7 +222,7 @@ export class Game {
       game.session.score.add('pigeons');
       game.session.sfx.push({ name: 'wings', x, z });
     };
-    say(1, 'Ready');
+    say(1, S().boot.ready);
     game.world.pictures.release();
     return game;
   }

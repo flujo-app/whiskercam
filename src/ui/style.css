@@ -570,7 +570,7 @@ body {
 
 .field {
   display: grid;
-  grid-template-columns: 38% 1fr;
+  grid-template-columns: 40% 1fr;
   align-items: center;
   gap: calc(var(--u) * 1.2);
   text-align: left;
@@ -581,8 +581,18 @@ body {
   grid-template-columns: auto 1fr;
 }
 
+/* (the narrow panel of the pause screen: half for the label, so "Drehgeschwindigkeit" stays in one piece) */
+.panel.small .field {
+  grid-template-columns: 50% 1fr;
+}
+
+/* (a label may be a long word in another language: it breaks onto a second line rather than run into the slider) */
 .field-label {
   color: var(--dim);
+  line-height: 1.2;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  min-width: 0;
 }
 
 .name,
