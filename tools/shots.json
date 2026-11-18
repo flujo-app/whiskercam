@@ -254,5 +254,71 @@
     "heading": 0
    }
   }
+ ],
+ "grime": [
+  {
+   "name": "alley",
+   "cat": {
+    "x": -22,
+    "z": 0,
+    "heading": 90
+   }
+  },
+  {
+   "name": "carport",
+   "cat": {
+    "x": 37.5,
+    "z": -3,
+    "heading": 80
+   }
+  },
+  {
+   "name": "wall",
+   "cat": {
+    "x": -10,
+    "z": -3.6,
+    "heading": 200
+   }
+  },
+  {
+   "name": "balcony",
+   "cat": {
+    "x": 6,
+    "z": 18,
+    "heading": 300
+   }
+  },
+  {
+   "name": "bins",
+   "cat": {
+    "x": -40.5,
+    "z": -9.4,
+    "heading": 272
+   }
+  },
+  {
+   "name": "hedge_in",
+   "cat": {
+    "x": -1,
+    "z": 24.2,
+    "heading": 180
+   },
+   "sim": [
+    {
+     "move": 1,
+     "t": 1.2
+    }
+   ]
+  },
+  {
+   "name": "undercar",
+   "pose": {
+    "x": 42.15,
+    "y": 0.09,
+    "z": 5.6,
+    "heading": 0,
+    "pitch": 4
+   }
+  }
  ]
 }

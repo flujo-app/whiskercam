@@ -1,7 +1,7 @@
 {
   "name": "whiskercam",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A day on the estate, filmed from under a cat's chin. A browser game.",
   "license": "MIT",
   "type": "module",
@@ -15,6 +15,7 @@
     "playtest": "node tools/playtest.mjs estate",
     "uitest": "node tools/uitest.mjs estate",
     "bench": "node tools/bench.mjs estate",
+    "roamtest": "node tools/roamtest.mjs estate",
     "deploy": "node tools/deploy.mjs"
   },
   "dependencies": {

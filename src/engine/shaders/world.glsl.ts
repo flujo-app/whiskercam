@@ -131,6 +131,9 @@ uniform float uShadowOn;
   uniform vec3 uPaintColor;
   uniform float uPaintWear;
 #endif
+#ifdef GRIME
+  uniform float uGrime;          // how dirty the sheltered spots get (0 = spotless)
+#endif
 #ifdef LM_VERTEX
   varying vec4 vBaked;
 #endif
@@ -339,6 +342,20 @@ void main() {
   #else
     sunVis = uProbeSun;
     irr = mix(uProbeIrrDown, uProbeIrrUp, N.y * 0.5 + 0.5);
+  #endif
+  #ifdef GRIME
+    // Dirt gathers where rain and brooms do not reach: in corners, under ledges and sills, along the foot
+    // of walls, under parked cars. The baked sky light tells how sheltered a spot is: the less sky it
+    // sees, the grimier it gets, in blotches rather than evenly.
+    {
+      float sky = dot(irr, vec3(0.3, 0.5, 0.2)) / (dot(uSkyUp, vec3(0.3, 0.5, 0.2)) * mix(0.5, 1.0, Ng.y * 0.5 + 0.5));
+      float nook = 1.0 - smoothstep(0.1, 0.62, sky);
+      vec2 gp = vWorldPos.xz * 1.9 + vWorldPos.y * vec2(0.7, 1.3);
+      float blotch = fbm(gp) * 0.6 + fbm(gp * 4.3) * 0.4;
+      float grime = nook * smoothstep(0.15, 0.75, blotch + nook * 0.35) * uGrime;
+      albedo *= mix(vec3(1.0), vec3(0.52, 0.5, 0.46), grime);
+      rough = mix(rough, 0.92, grime * 0.6);
+    }
   #endif
   // a camera balanced for daylight shows shade less blue than the raw sky light is
   irr = mix(vec3(dot(irr, vec3(0.3, 0.5, 0.2))), irr, uShadeColour);

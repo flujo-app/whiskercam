@@ -13,10 +13,14 @@ do in that time ends up in the clip, and the clip gets views:
 - **Win the turf.** Three cats guard the bins, the car port and the square. Walk up to one and it
   becomes a slap fight: slap when they are open, pull back when a paw comes up.
 - **Make a mess.** Pots, cans, a gnome, a ball. A paw swipe sends them flying.
-- **Go where cats go.** Under cars, through hedges, over walls.
+- **Go where cats go.** Under cars, through hedges, onto car roofs and low walls, up trees and fences.
 
-When the battery dies the clip is "posted": you get its title, its views and the comments, and you
-can save the clip as a real video file.
+Sprinting, climbing and slapping all use the same breath. In a fight, flailing loses: wait for the
+raised paw, pull back, and hit back while the other cat is off balance.
+
+When the battery dies the clip is "posted": you get its title, its views and the comments. The run
+is also a real video file, upright like a phone clip, with the views counter, the comments and a closing
+card in the picture: save it, or share it straight to a video app from a phone.
 
 ## Controls
 
@@ -25,7 +29,8 @@ can save the clip as a real video file.
 | Run | W (S to back up) | left thumb | left stick |
 | Sprint | Shift | push the stick far | right trigger |
 | Steer | mouse, or A / D | left thumb, or drag on the right | left stick, right stick |
-| Jump | Space | Jump button | A |
+| Jump (hold for higher) | Space | Jump button | A |
+| Climb a tree or a fence | push against it, or jump at it | same | same |
 | Paw swipe / slap | left and right mouse button, or Q / E | paw buttons | X / B |
 | Pull back in a fight | S | Jump button | Y |
 | Meow | F | | |
@@ -63,6 +68,8 @@ into `public/`.
 npm test          logic tests (fights, scoring, paths)
 npm run typecheck
 node tools/playtest.mjs estate    a bot plays a whole round in a hidden browser
+node tools/roamtest.mjs estate    the cat is sent at every kerb, stair, pipe, car, tree, fence and hedge
+node tools/uitest.mjs estate      clicks through every screen at desktop and phone size
 ```
 
 ## Credits and licence

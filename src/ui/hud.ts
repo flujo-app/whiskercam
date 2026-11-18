@@ -182,9 +182,9 @@ export class Hud {
 
     const how = el('div', 'how');
     how.innerHTML = touchDevice
-      ? '<b>Left thumb</b> run and steer (push far to sprint) &nbsp;·&nbsp; <b>right side</b> drag to look &nbsp;·&nbsp; buttons: paws and jump'
-      : '<b>W</b> run &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>mouse</b> or <b>A / D</b> steer &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>click</b> left / right paw &nbsp;·&nbsp; <b>F</b> meow &nbsp;·&nbsp; <b>S</b> pull back in a fight &nbsp;·&nbsp; <b>Esc</b> pause';
-    const goal = el('div', 'goal', 'The camera battery lasts three minutes. Chase your brother, knock things over, win the turf. Everything earns views.');
+      ? '<b>Left thumb</b> run and steer (push far to sprint) &nbsp;·&nbsp; <b>right side</b> drag to look &nbsp;·&nbsp; buttons: paws and jump (hold to jump higher) &nbsp;·&nbsp; push against a tree or a fence to climb it'
+      : '<b>W</b> run &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>mouse</b> or <b>A / D</b> steer &nbsp;·&nbsp; <b>Space</b> jump (hold for higher) &nbsp;·&nbsp; <b>click</b> or <b>Q / E</b> paws &nbsp;·&nbsp; <b>F</b> meow &nbsp;·&nbsp; push against a tree or a fence to climb &nbsp;·&nbsp; <b>S</b> pull back in a fight &nbsp;·&nbsp; <b>Esc</b> pause';
+    const goal = el('div', 'goal', 'The camera battery lasts three minutes. Chase your brother, knock things over, climb a tree, win the turf. Everything earns views, and the run becomes a video you can post.');
     const best = this.bestLine;
     best.textContent = this.settings.best > 0 ? `Best clip so far: ${fmt(this.settings.best)} views` : '';
     const about = el('div', 'about');

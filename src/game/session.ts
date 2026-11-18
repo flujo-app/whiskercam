@@ -95,6 +95,7 @@ export class Session {
   private readonly tmpB = new THREE.Vector3();
   private warned = false;
   private meowCool = 0;
+  private wasWinded = false;
   private meowScore = 0;
   private answerIn = 0;
 
@@ -582,6 +583,9 @@ export class Session {
 
     this.elapsed += dt;
     this.score.update(dt);
+    // ran itself out of breath: say so once each time
+    if (this.player.winded && !this.wasWinded && this.phase === 'play') this.say('Out of breath', 1.4);
+    this.wasWinded = this.player.winded;
     // a meow on demand; the brother answers when he is close enough to hear it
     this.meowCool = Math.max(0, this.meowCool - dt);
     this.meowScore = Math.max(0, this.meowScore - dt);
