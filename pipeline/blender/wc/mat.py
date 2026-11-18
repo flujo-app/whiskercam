@@ -112,7 +112,10 @@ FLATS: dict[str, dict] = {
 
 GLASS: dict[str, dict] = {
     "glass_window": {"color": (0.02, 0.025, 0.03), "rough": 0.03},
-    "glass_car": {"color": (0.012, 0.014, 0.016), "rough": 0.02},
+    # see-through: `clear` = share of the light that passes (sun and sky reach the car's cabin in the bake)
+    "glass_car": {"color": (0.012, 0.014, 0.016), "rough": 0.02, "clear": 0.7},
+    # clear lamp covers: reflector bowls and bulbs show behind them (color = what it reads as when drawn opaque)
+    "glass_lamp": {"color": (0.40, 0.41, 0.42), "rough": 0.02, "clear": 0.85},
     # windows with something pale right behind the pane (the game draws glass as a dark mirror, not see-through)
     "glass_curtain_cream": {"color": (0.30, 0.27, 0.22), "rough": 0.05},
     "glass_curtain_white": {"color": (0.42, 0.42, 0.40), "rough": 0.05},
@@ -204,7 +207,57 @@ def _make_tile(name: str, d: dict) -> bpy.types.Material:
     return mat
 
 
+def _make_clear_glass(name: str, d: dict) -> bpy.types.Material:
+    """See-through glass for Cycles: a grey see-through layer passing `clear` of the light, under a glossy
+    coat that reflects more at grazing angles. Shadow rays always take the see-through layer, so sunlight
+    and skylight reach what is behind the pane in the light bake. A trace of diffuse keeps the light-map
+    bake of the pane itself working (a bake without colour divides by the diffuse colour)."""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    color, rough, clear = d["color"], d.get("rough", 0.02), d["clear"]
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    see = nt.nodes.new("ShaderNodeBsdfTransparent")
+    see.inputs["Color"].default_value = (clear, clear, clear, 1.0)
+    gloss = nt.nodes.new("ShaderNodeBsdfGlossy")
+    gloss.distribution = "GGX"
+    gloss.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    gloss.inputs["Roughness"].default_value = rough
+    fres = nt.nodes.new("ShaderNodeFresnel")
+    fres.inputs["IOR"].default_value = 1.52
+    # a pane has two faces: about 8 % reflected head-on, all of it at grazing angles
+    coat_w = nt.nodes.new("ShaderNodeMath")
+    coat_w.operation = "MULTIPLY_ADD"
+    coat_w.inputs[1].default_value = 0.96
+    coat_w.inputs[2].default_value = 0.04
+    nt.links.new(fres.outputs["Fac"], coat_w.inputs[0])
+    coat = nt.nodes.new("ShaderNodeMixShader")
+    nt.links.new(coat_w.outputs["Value"], coat.inputs["Fac"])
+    nt.links.new(see.outputs["BSDF"], coat.inputs[1])
+    nt.links.new(gloss.outputs["BSDF"], coat.inputs[2])
+    diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    diff.inputs["Color"].default_value = (*color, 1.0)
+    trace = nt.nodes.new("ShaderNodeMixShader")
+    trace.inputs["Fac"].default_value = 0.03
+    nt.links.new(coat.outputs["Shader"], trace.inputs[1])
+    nt.links.new(diff.outputs["BSDF"], trace.inputs[2])
+    path = nt.nodes.new("ShaderNodeLightPath")
+    shadow = nt.nodes.new("ShaderNodeBsdfTransparent")
+    shadow.inputs["Color"].default_value = (clear, clear, clear, 1.0)
+    final = nt.nodes.new("ShaderNodeMixShader")
+    nt.links.new(path.outputs["Is Shadow Ray"], final.inputs["Fac"])
+    nt.links.new(trace.outputs["Shader"], final.inputs[1])
+    nt.links.new(shadow.outputs["BSDF"], final.inputs[2])
+    nt.links.new(final.outputs["Shader"], out.inputs["Surface"])
+    mat.diffuse_color = (*color, 1.0)
+    _props(mat, {"kind": "glass", "color": list(color), "rough": rough, "metal": d.get("metal", 0.0), "clear": clear})
+    return mat
+
+
 def _make_flat(name: str, d: dict, kind: str = "flat") -> bpy.types.Material:
+    if kind == "glass" and d.get("clear"):
+        return _make_clear_glass(name, d)
     mat, _, bsdf = _principled(name)
     color = d["color"]
     bsdf.inputs["Base Color"].default_value = (*color, 1.0)

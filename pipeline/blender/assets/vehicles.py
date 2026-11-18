@@ -57,6 +57,34 @@ _LOCAL = {
     "veh_saddle": ((0.06, 0.04, 0.03), 0.6, 0.0),
     "veh_chain": ((0.12, 0.11, 0.10), 0.5, 0.9),
     "veh_reflect": ((0.30, 0.30, 0.30), 0.45, 0.0),
+    # lamp units behind the clear covers
+    "veh_housing": ((0.020, 0.020, 0.021), 0.55, 0.0),
+    "veh_bulb": ((0.80, 0.80, 0.78), 0.08, 0.0),
+    # cabin (seen through the tinted glass)
+    "veh_headliner": ((0.56, 0.55, 0.52), 0.92, 0.0),
+    "veh_pillar": ((0.36, 0.36, 0.35), 0.70, 0.0),
+    "veh_dash": ((0.046, 0.046, 0.049), 0.66, 0.0),
+    "veh_doorcard": ((0.085, 0.085, 0.090), 0.62, 0.0),
+    "veh_carpet": ((0.052, 0.050, 0.048), 0.98, 0.0),
+    "veh_leather": ((0.026, 0.025, 0.024), 0.45, 0.0),
+    "veh_gauge": ((0.008, 0.008, 0.009), 0.22, 0.0),
+    "veh_dial": ((0.62, 0.62, 0.60), 0.35, 0.0),
+    "veh_belt": ((0.030, 0.030, 0.034), 0.80, 0.0),
+    "veh_ply": ((0.36, 0.27, 0.16), 0.80, 0.0),
+    "veh_cardboard": ((0.40, 0.28, 0.15), 0.90, 0.0),
+    "veh_disc_blue": ((0.06, 0.16, 0.42), 0.45, 0.0),
+    "veh_cushion_red": ((0.32, 0.06, 0.05), 0.95, 0.0),
+    "veh_cushion_ochre": ((0.45, 0.32, 0.10), 0.95, 0.0),
+    "veh_tree": ((0.10, 0.35, 0.10), 0.70, 0.0),
+    # seat fabrics: main cloth and the centre panels, one pair per interior colour
+    "veh_seat_dark": ((0.075, 0.075, 0.080), 0.95, 0.0),
+    "veh_seat_dark_in": ((0.115, 0.115, 0.125), 0.97, 0.0),
+    "veh_seat_grey": ((0.20, 0.20, 0.205), 0.95, 0.0),
+    "veh_seat_grey_in": ((0.12, 0.125, 0.145), 0.97, 0.0),
+    "veh_seat_beige": ((0.38, 0.32, 0.24), 0.95, 0.0),
+    "veh_seat_beige_in": ((0.30, 0.25, 0.19), 0.97, 0.0),
+    "veh_seat_blue": ((0.07, 0.085, 0.12), 0.95, 0.0),
+    "veh_seat_blue_in": ((0.11, 0.14, 0.22), 0.97, 0.0),
 }
 
 
@@ -226,6 +254,41 @@ def _prism(bm, outline, z0, z1, mi=0, xform: Matrix | None = None):
     return faces
 
 
+def _loft(bm, rings, mis=0, closed=True, caps=True, cap_mi=None, fix=True):
+    """Skin consecutive rings of points (same count each) with quads; mis is one index or one per ring segment
+    (point k to k + 1).  The two end rings are closed with n-gons, normals point out of the solid."""
+    vs = [[bm.verts.new(p) for p in ring] for ring in rings]
+    n = len(rings[0])
+    per = isinstance(mis, (list, tuple))
+    faces = []
+    for a, b in zip(vs[:-1], vs[1:]):
+        for k in range(n if closed else n - 1):
+            k2 = (k + 1) % n
+            faces.append(_face(bm, (a[k], a[k2], b[k2], b[k]), mis[k] if per else mis))
+    if caps:
+        cm = cap_mi if cap_mi is not None else (mis[0] if per else mis)
+        faces.append(_face(bm, list(reversed(vs[0])), cm))
+        faces.append(_face(bm, vs[-1], cm))
+    if fix:
+        bmesh.ops.recalc_face_normals(bm, faces=faces)
+    return faces
+
+
+def _disc(bm, centre, normal, r, mi, segs=10, up=(0.0, 0.0, 1.0)):
+    """Flat round face (an n-gon) facing `normal`."""
+    nrm = Vector(normal).normalized()
+    u = Vector(up)
+    u = (u - nrm * u.dot(nrm))
+    u = u.normalized() if u.length > 1e-6 else nrm.orthogonal().normalized()
+    v = nrm.cross(u)
+    vs = [bm.verts.new(Vector(centre) + (u * math.cos(a) + v * math.sin(a)) * r) for a in _ring_angles(segs)]
+    f = _face(bm, vs, mi)
+    f.normal_update()
+    if f.normal.dot(nrm) < 0:
+        f.normal_flip()
+    return f
+
+
 def _finish(bm, name, mats: Mats, coll, angle=40.0, keep_bm=False):
     """bmesh -> object with smooth shading, hard edges above `angle` and between materials."""
     bm.normal_update()
@@ -290,6 +353,17 @@ def _mirror_pts(pts):
     return [(-u, v) for u, v in pts]
 
 
+def _round_rect(u0, u1, v0, v1, r, n=3):
+    """Convex 2D outline of a rectangle with rounded corners (counter-clockwise)."""
+    r = min(r, (u1 - u0) / 2 * 0.99, (v1 - v0) / 2 * 0.99)
+    pts = []
+    for cu, cv, a0 in ((u1 - r, v0 + r, -90.0), (u1 - r, v1 - r, 0.0), (u0 + r, v1 - r, 90.0), (u0 + r, v0 + r, 180.0)):
+        for k in range(n + 1):
+            a = math.radians(a0 + 90.0 * k / n)
+            pts.append((cu + r * math.cos(a), cv + r * math.sin(a)))
+    return pts
+
+
 def carve(bm, axes, poly, pred, mi_ring, mi_in=None, inset=0.0, push=0.0, mirror=False, margin=0.04, mats=None):
     """Paint a convex 2D polygon (seen along one axis) onto the surface.
 
@@ -336,9 +410,11 @@ def carve(bm, axes, poly, pred, mi_ring, mi_in=None, inset=0.0, push=0.0, mirror
 
 
 def groove(bm, axes, a, b, pred, mi, width=0.0045, depth=0.0, mirror=False, mats=None):
-    """A shut line: a thin dark slot along the 2D segment a-b of a projection."""
+    """A shut line: a thin dark slot along the 2D segment a-b of a projection (a negative depth raises a
+    crease instead).  Returns the vertices on its centre line."""
     segs = [(a, b), ((-a[0], a[1]), (-b[0], b[1]))] if mirror else [(a, b)]
     i, j = _AX[axes[0]], _AX[axes[1]]
+    moved = set()
     for pa, pb in segs:
         bm.normal_update()
         co, no = _plane2d(axes, pa, pb, (pa[0] + 1.0, pa[1] + 1.0))
@@ -365,6 +441,8 @@ def groove(bm, axes, a, b, pred, mi, width=0.0045, depth=0.0, mirror=False, mats
         moves = [(v, v.normal.copy()) for v in centre]
         for v, n in moves:
             v.co -= n * depth
+        moved |= centre
+    return moved
 
 
 # ---------------------------------------------------------------- wheels
@@ -853,7 +931,7 @@ def _carve_body(bm, S, W, mm: Mats):
 
     PAINT, PLAST = 0, mm("veh_plastic")
     UNDER, SHUT, TRIM, GLASS = mm("veh_underseal"), mm("veh_shut"), mm("veh_trim"), mm("glass_car")
-    LAMP, RED = mm("veh_headlamp"), mm("light_red")
+    LAMPGLASS = mm("glass_lamp")
     ok = {PAINT, PLAST}
     hw = max(r[4] for r in rows)
     # underseal on the floor between the sills, cut along straight lines
@@ -894,10 +972,16 @@ def _carve_body(bm, S, W, mm: Mats):
         groove(bm, "xz", (-xs, zr), (xs, zr), rear, SHUT, mats=ok)
     if "reardoors" in S:
         groove(bm, "xz", (0.0, S["reardoors"]), (0.0, 2.0), rear, SHUT, mats=ok)
+    # fuel flap: a lid sitting a touch below the skin in a thin dark gap
     y0, y1, z0, z1 = S["fuel"]
     right = lambda c, n: n.x > 0.3 and c.x > 0.3
-    for a, b in (((y0, z0), (y1, z0)), ((y1, z0), (y1, z1)), ((y1, z1), (y0, z1)), ((y0, z1), (y0, z0))):
-        groove(bm, "yz", a, b, right, SHUT, width=0.0035, mats=ok)
+    carve(bm, "yz", _round_rect(min(y0, y1), max(y0, y1), z0, z1, 0.0, n=1), right, SHUT, PAINT, inset=0.0035,
+          push=0.0015, margin=0.025, mats=ok)
+    # finger pockets behind the door pulls
+    for y_h in S["handles"]:
+        z_h = belt(y_h) - 0.085
+        carve(bm, "yz", _round_rect(y_h - 0.07, y_h + 0.07, z_h - 0.034, z_h + 0.010, 0.0, n=1), side, PAINT, PAINT,
+              inset=0.005, push=0.011, margin=0.025, mats=ok)
     # tow-eye cover: a small lid in the front bumper
     ix, iz = 0.62 * hw, S["intake"][0][1] + 0.06
     tow = lambda c, n: n.y > 0.2 and c.y > y_front - 0.35
@@ -924,11 +1008,11 @@ def _carve_body(bm, S, W, mm: Mats):
     else:
         rp = lambda c, n: n.y < -0.2 and c.y < ylim and c.z > belt(c.y) - 0.06
     carve(bm, "xz", poly, rp, TRIM, GLASS, inset=0.025, push=0.005, mirror=kind == "rear_pair", mats=ok)
-    # lamps, grille, intake
+    # lamps: a clear cover set a touch into the skin (the lamp units behind it are added in _lamp_units), grille, intake
     front_face = lambda c, n: n.y > 0.05 and c.y > y_front - 0.30 and c.z > zb(c.y) + 0.1
-    carve(bm, "xz", S["head"], front_face, TRIM, LAMP, push=0.004, mirror=True, mats=ok)
+    carve(bm, "xz", S["head"], front_face, TRIM, LAMPGLASS, push=0.003, mirror=True, mats=ok)
     rear_face = lambda c, n: n.y < -0.05 and c.y < y_rear + 0.30
-    carve(bm, "xz", S["tail"], rear_face, TRIM, RED, push=0.003, mirror=True, mats=ok)
+    carve(bm, "xz", S["tail"], rear_face, TRIM, LAMPGLASS, push=0.003, mirror=True, mats=ok)
     nose = lambda c, n: n.y > 0.3 and c.y > yf + ra
     carve(bm, "xz", S["grille"], nose, TRIM, PLAST, push=0.012, mats=ok)
     carve(bm, "xz", S["intake"], nose, PLAST, SHUT, push=0.02, mats=ok)
@@ -936,6 +1020,43 @@ def _carve_body(bm, S, W, mm: Mats):
     floor = [f for f in bm.faces if f.material_index == UNDER and f.normal.z < -0.95]
     if floor:
         bmesh.ops.dissolve_faces(bm, faces=floor, use_verts=True)
+
+
+def _crease(bm, S, W):
+    """A character line along the doors at no cost in triangles: the row of skin vertices nearest to 15 cm
+    under the window line is pushed out 6 mm (its edges are made sharp in _build_body).  Run on the plain
+    subdivided skin, before anything is cut into it."""
+    rows = S["rows"]
+    ra = W["Ro"] + S["arch"]
+    y_lo, y_hi = S["yr"] + ra + 0.06, S["yf"] - ra - 0.02
+    bm.verts.ensure_lookup_table()
+    bm.normal_update()
+    out = set()
+    for s in (1.0, -1.0):
+        z_aim = _interp(rows, 0.0, 2) - 0.15
+        side = [v for v in bm.verts if v.co.x * s > 0.6 and abs(v.normal.x) > 0.8 and abs(v.co.y) < 0.12]
+        if not side:
+            continue
+        start = min(side, key=lambda v: abs(v.co.z - z_aim))
+        line = {start}
+        for direction in (1.0, -1.0):
+            v = start
+            while True:
+                best, best_dot = None, 0.9
+                for e in v.link_edges:
+                    w = e.other_vert(v)
+                    d = (w.co - v.co).normalized()
+                    if d.y * direction > best_dot:
+                        best, best_dot = w, d.y * direction
+                if best is None or not (y_lo <= best.co.y <= y_hi) or best in line:
+                    break
+                line.add(best)
+                v = best
+        out |= line
+    moves = [(v, v.normal.copy()) for v in out]
+    for v, n in moves:
+        v.co += n * 0.006
+    return out
 
 
 def _shade_bm(bm, angle):
@@ -951,19 +1072,260 @@ def _shade_bm(bm, angle):
         f.smooth = True
 
 
+class _Shell:
+    """Ray queries against the outer skin of a car body (car-local coordinates), taken before the lamp units
+    go in behind the covers.  Rays hit faces from either side, so it answers from inside the car too."""
+
+    def __init__(self, bm, glass: set, lamp: set):
+        bm.normal_update()
+        self.bvh = BVHTree.FromBMesh(bm)
+        self.glass = [f.material_index in glass for f in bm.faces]
+        self.lamp = [f.material_index in lamp for f in bm.faces]
+
+    def ray(self, o, d):
+        """First hit along a ray: (location, face normal, hit is car glass) or (None, None, False)."""
+        loc, nrm, idx, _ = self.bvh.ray_cast(Vector(o), Vector(d).normalized())
+        if loc is None:
+            return None, None, False
+        return loc, nrm, self.glass[idx]
+
+    def lamp_hit(self, o, d):
+        loc, nrm, idx, _ = self.bvh.ray_cast(Vector(o), Vector(d).normalized())
+        if loc is None or not self.lamp[idx]:
+            return None, None
+        return loc, nrm
+
+    def x(self, y, z, fallback=0.8):
+        """Inner side of the skin (right-hand side) at (y, z), looking out from beside the floor tunnel."""
+        loc, _, _ = self.ray((0.3, y, z), (1.0, 0.0, 0.0))
+        return loc.x if loc is not None else fallback
+
+    def z_up(self, x, y, z0):
+        loc, _, _ = self.ray((x, y, z0), (0.0, 0.0, 1.0))
+        return loc.z if loc is not None else z0 + 0.5
+
+    def z_down(self, x, y, z0):
+        loc, _, _ = self.ray((x, y, z0), (0.0, 0.0, -1.0))
+        return loc.z if loc is not None else 0.2
+
+
 def _build_body(name, S, W, paint, coll):
     obj = _body_shell(name, S, W, paint, coll)
     mm = Mats(*[m.name for m in obj.data.materials])
     bm = bmesh.new()
     bm.from_mesh(obj.data)
+    crease = _crease(bm, S, W)
     _carve_body(bm, S, W, mm)
+    crease = {v for v in crease if v.is_valid}
+    shell = _Shell(bm, {mm("glass_car")}, {mm("glass_lamp")})
+    _lamp_units(bm, S, mm, shell)
     _shade_bm(bm, 48.0)
-    bvh = BVHTree.FromBMesh(bm)
+    for e in bm.edges:
+        if e.verts[0] in crease and e.verts[1] in crease:
+            e.smooth = False
     bm.to_mesh(obj.data)
     bm.free()
     mm.attach(obj)
     geo.uv_box(obj)
-    return obj, bvh
+    return obj, shell
+
+
+# ---------------------------------------------------------------- lamp units behind the clear covers
+
+def _face_groups(faces):
+    """Split faces into edge-connected groups."""
+    left = set(faces)
+    out = []
+    while left:
+        f0 = left.pop()
+        group, stack = [f0], [f0]
+        while stack:
+            f = stack.pop()
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g in left:
+                        left.remove(g)
+                        group.append(g)
+                        stack.append(g)
+        out.append(group)
+    return out
+
+
+def _outline(faces):
+    """Ordered outer boundary vertices of a disc-shaped group of faces."""
+    fs = set(faces)
+    nxt = {}
+    for f in faces:
+        for loop in f.loops:
+            if sum(1 for g in loop.edge.link_faces if g in fs) == 1:
+                nxt[loop.vert] = loop.link_loop_next.vert
+    best, seen = [], set()
+    for start in nxt:
+        if start in seen:
+            continue
+        cyc, v = [start], nxt[start]
+        seen.add(start)
+        while v is not start and v not in seen and v in nxt:
+            cyc.append(v)
+            seen.add(v)
+            v = nxt[v]
+        if len(cyc) > len(best):
+            best = cyc
+    return best
+
+
+def _cup(bm, rim_c, axis, r, depth, mi, mi_back, segs=7):
+    """Reflector bowl: rim centred on rim_c, opening against `axis` (axis points into the lamp)."""
+    a = Vector(axis).normalized()
+    u = a.orthogonal().normalized()
+    v = a.cross(u)
+    angs = _ring_angles(segs)
+    rings = [[bm.verts.new(rim_c + a * (depth * t) + (u * math.cos(q) + v * math.sin(q)) * (r * k)) for q in angs]
+             for t, k in ((0.0, 1.0), (0.62, 0.70), (1.0, 0.2))]
+    focus = rim_c + a * (depth * 0.45)
+    for r0, r1 in zip(rings[:-1], rings[1:]):
+        for i in range(segs):
+            f = _face(bm, (r0[i], r0[(i + 1) % segs], r1[(i + 1) % segs], r1[i]), mi)
+            f.normal_update()
+            if f.normal.dot(focus - f.calc_center_median()) < 0:
+                f.normal_flip()
+    f = _face(bm, rings[-1], mi_back)
+    f.normal_update()
+    if f.normal.dot(-a) < 0:
+        f.normal_flip()
+    return rim_c + a * depth
+
+
+def _bulb(bm, base, axis, length, mi, r=0.0085):
+    a = Vector(axis).normalized()
+    _tube(bm, [base, base + a * (length * 0.55), base + a * length], [r * 0.75, r, r * 0.7], mi, segs=4)
+
+
+def _fitted(bm, shell, tries):
+    """Build the first of `tries` (functions that fill a bmesh) that stays clear of the skin, into bm."""
+    for make in tries:
+        tmp = bmesh.new()
+        make(tmp)
+        tmp.normal_update()
+        if not shell.bvh.overlap(BVHTree.FromBMesh(tmp)):
+            _merge(bm, tmp)
+            return True
+        tmp.free()
+    return False
+
+
+def _housing(bm, pts, nrms, c0, back, mi_wall, mi_plate):
+    """Lamp housing: walls from the cover's edge (just inside the skin) in towards `back`, closed by a plate."""
+    n = len(pts)
+    m = 12 if n >= 24 else 8
+    near = [bm.verts.new(p - vn * 0.0015) for p, vn in zip(pts, nrms)]
+    far = [bm.verts.new(pts[i * n // m] + (back - pts[i * n // m]) * 0.6) for i in range(m)]
+    walls = []
+    for k in range(n):
+        ca, cb = k * m // n, ((k + 1) * m // n) % m
+        quad = (near[k], near[(k + 1) % n], far[cb], far[ca]) if ca != cb else (near[k], near[(k + 1) % n], far[ca])
+        walls.append(_face(bm, quad, mi_wall))
+    plate = _face(bm, far, mi_plate)
+    axis = back - c0
+    for f in walls:
+        f.normal_update()
+        p = f.calc_center_median()
+        t = max(0.0, min(1.0, (p - c0).dot(axis) / axis.length_squared))
+        if f.normal.dot(c0 + axis * t - p) < 0:
+            f.normal_flip()
+    plate.normal_update()
+    if plate.normal.dot(c0 - plate.calc_center_median()) < 0:
+        plate.normal_flip()
+
+
+def _lamp_units(bm, S, mm, shell):
+    """Behind each clear lamp cover: a housing running back from the cover's edge, reflector bowls with
+    bulbs in them, and (tail lamps) red ribs in front of a red reflector.  Each piece is tried at a few
+    sizes and only the first one that stays clear of the skin is kept."""
+    LG = mm("glass_lamp")
+    HOUSE, REFL, BULB = mm("veh_housing"), mm("veh_headlamp"), mm("veh_bulb")
+    AMBER, RED = mm("veh_amber"), mm("light_red")
+    bm.normal_update()
+    y_front, y_rear = S["rows"][-1][0], S["rows"][0][0]
+    for group in _face_groups([f for f in bm.faces if f.material_index == LG]):
+        ring = _outline(group)
+        n = len(ring)
+        if n < 8:
+            continue
+        front = sum(f.calc_center_median().y for f in group) > 0
+        pts = [v.co.copy() for v in ring]
+        c0 = sum(pts, Vector()) / n
+        nrm = sum((f.normal * f.calc_area() for f in group), Vector()).normalized()
+        # the edge is thinned where it runs nearly straight (chords on the curved skin stay behind the cover)
+        keep = [0]
+        for i in range(1, n):
+            a, b, c = pts[keep[-1]], pts[i], pts[(i + 1) % n]
+            if i - keep[-1] >= 3 or (b - a).normalized().dot((c - b).normalized()) < 0.985:
+                keep.append(i)
+        inner = REFL if front else RED
+
+        def housing(depth, idx):
+            back = c0 - nrm * depth
+            back.x *= 0.9
+            pe, ne = [pts[i] for i in idx], [ring[i].normal.copy() for i in idx]
+            return lambda t: _housing(t, pe, ne, c0, back, inner, inner)
+
+        def lens(t, gap=0.01):
+            """Fallback where no housing fits: a second skin just behind the cover."""
+            vs = {}
+            for f in group:
+                for v in f.verts:
+                    if v not in vs:
+                        vs[v] = t.verts.new(v.co - v.normal * gap)
+                _face(t, [vs[v] for v in f.verts], inner)
+
+        depths = [d * (0.10 if front else 0.07) for d in (1.0, 0.75, 0.55, 0.4, 0.28)]
+        _fitted(bm, shell, [housing(d, keep) for d in depths] + [housing(d, range(n)) for d in depths[2:]] + [lens])
+        # bowls and bulbs, placed by their spot on the cover (x across, z up)
+        side = 1.0 if c0.x > 0 else -1.0
+        xs = [abs(p.x) for p in pts]
+        zs = [p.z for p in pts]
+        x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+        zm, h = (z0 + z1) / 2, z1 - z0
+        y_out = (y_front + 1.0) if front else (y_rear - 1.0)
+        look = Vector((0.0, -1.0 if front else 1.0, 0.0))
+
+        def on_cover(fx, fz):
+            loc, cn = shell.lamp_hit((side * (x0 + (x1 - x0) * fx), y_out, fz), look)
+            return (loc, cn) if loc is not None else (None, None)
+
+        r_b = min(0.036, 0.36 * h)
+        wide = x1 - x0
+        # (spot across, spot up, bowl radius or 0 for a bare bulb, bulb); a lamp split by a shut line gets
+        # fewer cells in each part
+        if front:
+            cells = [(0.28, zm, r_b, BULB), (0.58, zm, r_b * 0.9, BULB), (0.88, zm, 0.0, AMBER)]
+        elif wide >= 0.24:
+            cells = [(0.14, zm, r_b * 0.7, BULB), (0.46, zm, r_b * 0.85, RED), (0.78, zm, 0.0, AMBER)]
+        elif wide >= 0.12:
+            cells = [(0.26, zm, r_b * 0.7, BULB), (0.70, zm, r_b * 0.8, RED)]
+        else:
+            cells = [(0.5, zm, 0.0, AMBER)]
+        def cell(loc, cn, r, gap, bulb_mi):
+            def make(t):
+                if r:
+                    base = _cup(t, loc - cn * gap, -cn, r, r * 0.95, REFL, HOUSE)
+                    _bulb(t, base, cn, r * 0.75, bulb_mi)
+                else:                       # a bare bulb standing out of the reflector plate
+                    _bulb(t, loc - cn * 0.075, cn, 0.055, bulb_mi, r=0.008)
+            return make
+
+        for fx, fz, r, bulb_mi in cells:
+            loc, cn = on_cover(fx, fz)
+            if loc is not None:
+                _fitted(bm, shell, [cell(loc, cn, r * k, g, bulb_mi) for k, g in ((1.0, 0.008), (0.8, 0.012), (0.6, 0.016))])
+        if not front and wide >= 0.12:
+            # horizontal red ribs in front of the reflector plate: the lens optics seen through the cover
+            for dz in (-0.36 * h, 0.36 * h):
+                ends = [on_cover(fx, zm + dz)[0] for fx in (0.08, 0.66)]
+                if None not in ends:
+                    a, b = (e + Vector((0.0, 0.014, 0.0)) for e in ends)
+                    _fitted(bm, shell, [lambda t, a=a, b=b: _bar(t, a, b, 0.009, 0.007, RED)])
 
 
 # ---------------------------------------------------------------- small parts
@@ -995,6 +1357,14 @@ def _bar(bm, p0, p1, w, h, mi=0, up=(0.0, 0.0, 1.0)):
     return faces
 
 
+def _box(bm, centre, half, turn, mi):
+    """Plain box (cardboard and the like have sharp edges) turned about Z."""
+    rot = Matrix.Rotation(turn, 3, "Z")
+    c, (hx, hy, hz) = Vector(centre), half
+    a, b = c - rot @ Vector((hx, 0.0, 0.0)), c + rot @ Vector((hx, 0.0, 0.0))
+    return _bar(bm, a, b, 2 * hy, 2 * hz, mi)
+
+
 def _helix(bm, base, radius, height, turns, wire, mi, per_turn=8):
     n = int(turns * per_turn)
     pts = [(base[0] + radius * math.cos(2 * math.pi * k / per_turn), base[1] + radius * math.sin(2 * math.pi * k / per_turn),
@@ -1020,32 +1390,90 @@ def _details(name, S, W, paint, bvh, coll):
     PAINT = 0
     BLACK, TRIM = mm("veh_plastic"), mm("veh_trim")
     shell = BLACK if S["cladding"] else PAINT
-    # door mirrors
+    Z = Vector((0.0, 0.0, 1.0))
+    # door mirrors: a black foot on the door skin, a short arm, a housing with a painted cap and a black back
+    # that frames the glass
     y_m = S["dlo"][0][0] - 0.07
     z_m = belt(y_m) + 0.05
+    sec = [(-0.030, 0.050), (0.004, 0.060), (0.032, 0.050), (0.044, 0.022), (0.046, -0.008), (0.036, -0.036),
+           (0.012, -0.052), (-0.030, -0.048)]
     for s in (1, -1):
         p, n = hit((s * 2.0, y_m, z_m), (-s, 0.0, 0.0))
         if p is None:
             continue
+        ty = Vector((0.0, 1.0, 0.0))
+        ty = (ty - n * n.dot(ty)).normalized()
+        tz = n.cross(ty).normalized()
+        if tz.z < 0:
+            tz.negate()
+        foot = Matrix(((ty.x, tz.x, n.x, p.x), (ty.y, tz.y, n.y, p.y), (ty.z, tz.z, n.z, p.z), (0.0, 0.0, 0.0, 1.0)))
+        _prism(bm, _round_rect(-0.048, 0.040, -0.030, 0.028, 0.013), -0.010, 0.008, BLACK, foot)
         rot = Matrix.Rotation(math.radians(-7 * s), 3, "Z")
-        c = p + Vector((s * 0.125, -0.012, 0.02))
-        _rbox(bm, c, (0.088, 0.048, 0.062), 0.032, shell, rot, ticks=0)
-        gl = c + rot @ Vector((0.0, -0.047, 0.0))
-        _bar(bm, gl - rot.col[0] * 0.074, gl + rot.col[0] * 0.074, 0.007, 0.096, mm("veh_mirror"))
-        _rbox(bm, p + Vector((s * 0.03, -0.004, 0.0)), (0.055, 0.032, 0.024), 0.012, BLACK, rot, ticks=-1)
+        X, Yd = rot @ Vector((s, 0.0, 0.0)), rot @ Vector((0.0, 1.0, 0.0))
+        hb = p + n * 0.05 + Vector((0.0, -0.012, 0.03))
+        rings = [[hb + X * t + Yd * (y * k) + Z * (z * k) for y, z in sec]
+                 for t, k in ((0.0, 0.72), (0.025, 0.95), (0.15, 1.0), (0.172, 0.84))]
+        _loft(bm, rings, [shell] * 7 + [BLACK], cap_mi=shell)
+        gl = hb + Yd * -0.0312 + Z * 0.001
+        _bar(bm, gl + X * 0.032, gl + X * 0.154, 0.004, 0.082, mm("veh_mirror"))
+        _bar(bm, p - n * 0.004 + Z * 0.004, hb + X * 0.014 + Z * -0.012, 0.024, 0.020, BLACK)
         # side repeater just behind the front wheel arch
         ang = math.radians(-38)
         yq, zq = yf + ra * math.sin(ang) - 0.06, W["Ro"] + ra * math.cos(ang) + 0.07
         p2, n2 = hit((s * 2.0, yq, zq), (-s, 0.0, 0.0))
         if p2 is not None:
             _bar(bm, p2 + Vector((0, -0.022, 0)), p2 + Vector((0, 0.022, 0)), 0.006, 0.016, mm("veh_amber"))
-    # door handles
+    # door pulls standing over their finger pockets (carved into the skin in _carve_body)
     for y_h in S["handles"]:
         z_h = belt(y_h) - 0.085
         for s in (1, -1):
-            p, n = hit((s * 2.0, y_h, z_h), (-s, 0.0, 0.0))
-            if p is not None:
-                _rbox(bm, p + n * 0.009, (0.062, 0.012, 0.0135), 0.009, shell, _basis(n), ticks=-1)
+            pa, na = hit((s * 2.0, y_h + 0.085, z_h), (-s, 0.0, 0.0))
+            pb, nb = hit((s * 2.0, y_h - 0.085, z_h), (-s, 0.0, 0.0))
+            if pa is None or pb is None:
+                continue
+            nn = (na + nb).normalized()
+            path = [pa + (pb - pa) * t + nn * off for t, off in
+                    ((0.09, -0.004), (0.16, 0.010), (0.29, 0.0145), (0.71, 0.0145), (0.84, 0.010), (0.91, -0.004))]
+            _tube(bm, path, [0.0062, 0.0072, 0.0078, 0.0078, 0.0072, 0.0062], shell, segs=5)
+    # rubbing strips along the doors (not on cars with black sills), broken at the shut lines
+    z_r = {"hatch": 0.50, "sedan": 0.49, "van": 0.57}.get(S["wheel"])
+    if z_r:
+        y_a, y_b = yf - ra - 0.07, yr + ra + 0.07
+        cuts = []
+        for seg in S["doors"]:
+            for (ya_, za_), (yb_, zb_) in zip(seg[:-1], seg[1:]):
+                if abs(za_ - zb_) > 1e-6 and min(za_, zb_) <= z_r <= max(za_, zb_):
+                    cuts.append(ya_ + (yb_ - ya_) * (z_r - za_) / (zb_ - za_))
+        ends = sorted({y_a, y_b, *[c for c in cuts if y_b + 0.05 < c < y_a - 0.05]}, reverse=True)
+        for s in (1, -1):
+            for k, (ya_, yb_) in enumerate(zip(ends[:-1], ends[1:])):
+                ya_ -= 0.004 if k > 0 else 0.0
+                yb_ += 0.004 if k < len(ends) - 2 else 0.0
+                steps = max(2, int(math.ceil((ya_ - yb_) / 0.26)))
+                rings = []
+                for q in range(steps + 1):
+                    p, n = hit((s * 2.0, ya_ + (yb_ - ya_) * q / steps, z_r), (-s, 0.0, 0.0))
+                    if p is None:
+                        break
+                    zt = (Z - n * n.z).normalized()
+                    rings.append([p - n * 0.003 - zt * 0.017, p + n * 0.006 - zt * 0.010, p + n * 0.006 + zt * 0.010,
+                                  p - n * 0.003 + zt * 0.017])
+                if len(rings) >= 2:
+                    _loft(bm, rings, TRIM, closed=False)
+    # rubber seal along the bottom of the side windows
+    (d0y, d0z), (d1y, d1z) = S["dlo"][0], S["dlo"][-1]
+    steps = max(2, int(math.ceil(abs(d0y - d1y) / 0.35)))
+    for s in (1, -1):
+        rings = []
+        for q in range(steps + 1):
+            t = 0.01 + 0.98 * q / steps
+            p, n = hit((s * 2.0, d0y + (d1y - d0y) * t, d0z + (d1z - d0z) * t + 0.003), (-s, 0.0, 0.0))
+            if p is None:
+                break
+            zt = (Z - n * n.z).normalized()
+            rings.append([p - n * 0.002 - zt * 0.0065, p + n * 0.0035, p - n * 0.002 + zt * 0.0065])
+        if len(rings) >= 2:
+            _loft(bm, rings, mm("veh_seal"), closed=False)
     # wipers resting at the bottom of the windscreen
     wb = S["ws"][0]
     for x0, x1, pivot in ((-0.64, -0.06, -0.38), (-0.03, 0.50, 0.24)):
@@ -1092,29 +1520,7 @@ def _details(name, S, W, paint, bvh, coll):
                 pts.append(p + n * 0.004)
         if len(pts) >= 2:
             _tube(bm, pts, 0.0055, mm("chrome") if S["wheel"] == "sedan" else TRIM, segs=4)
-    hx = sum(p[0] for p in S["head"]) / 4
-    hz = sum(p[1] for p in S["head"]) / 4
-    hx1 = max(p[0] for p in S["head"])
-    hz0 = min(p[1] for p in S["head"])
-    tx0, tx1 = min(p[0] for p in S["tail"]), max(p[0] for p in S["tail"])
-    tz0, tz1 = min(p[1] for p in S["tail"]), max(p[1] for p in S["tail"])
-    X = Vector((1.0, 0.0, 0.0))
-
-    def lamp_bar(origin, direction, half, h, m, lift=0.0015):
-        p, n = hit(origin, direction)
-        if p is not None:
-            u = (X - n * n.dot(X)).normalized()
-            _bar(bm, p + n * lift - u * half, p + n * lift + u * half, 0.004, h, m, up=n.cross(u))
-
-    for s in (1, -1):
-        p, n = hit((s * (hx - 0.06), y_front + 1.0, hz), (0.0, -1.0, 0.0))
-        if p is not None:
-            _tube(bm, [p - n * 0.004, p + n * 0.003], 0.024, mm("veh_lens_dark"), segs=12)
-        # daytime running strip and indicator in the headlamp, reversing lamp and indicator in the tail lamp
-        lamp_bar((s * (hx + 0.02), y_front + 1.0, hz0 + 0.012), (0.0, -1.0, 0.0), 0.11, 0.008, mm("light_clear"))
-        lamp_bar((s * min(hx1 - 0.10, 0.80), y_front + 1.0, hz + 0.008), (0.0, -1.0, 0.0), 0.035, 0.022, mm("veh_amber"))
-        lamp_bar((s * (tx0 + 0.07), y_rear - 1.0, tz0 + 0.025), (0.0, 1.0, 0.0), 0.045, 0.026, mm("light_clear"))
-        lamp_bar((s * (tx0 + 0.18), y_rear - 1.0, tz1 - 0.028), (0.0, 1.0, 0.0), 0.05, 0.022, mm("veh_amber"))
+    # (the lamps' insides are part of the body: see _lamp_units)
     # roof aerial
     if S["wheel"] in ("hatch", "micro", "sedan"):
         ya = S["dlo"][2][0] - 0.06
@@ -1220,12 +1626,758 @@ def _colliders(name, S, W, coll):
     return out
 
 
+# ---------------------------------------------------------------- cabin
+#
+# Everything behind the glass is one object.  The cat sees it mostly from below (roof lining, seat tops,
+# headrests, the top of the steering wheel) and from the bonnet or the roof (dashboard, wheel, seats).
+# Right-hand drive, like the plates.  Every piece is placed with rays cast against the finished skin
+# (see _Shell), so nothing reaches through it or through the glass:
+#   lining  22 mm inside the skin from one window sill over the roof to the other, closed at both ends
+#           (firewall, back panel or bulkhead), the windows cut out exactly and a rubber reveal run from
+#           each opening out to its glass
+#   trims   door cards (sill, armrest, pocket, handle) and side panels down to the floor, clear of the arches
+#   floor   carpet stepping in past the wheel arches, tunnel, console with gear lever and handbrake
+#   dash    dashboard, instrument hood with two dials, centre stack, glovebox, wheel on its column
+#   seats   front seats with headrests, a rear bench (the van: a bulkhead and a plywood load bay instead)
+#   bits    parcel shelf, mirror, belts and, by the seed, a few things left in the car
+
+CABIN = {
+    # front, back: ends of the lining; pillar: B-pillar y; arm: armrest height
+    # dash: (top lip y, top z, knee y, knee z); wheel: (centre y, centre z, tilt from upright)
+    # seat: (x, cushion front y, cushion back y, cushion top z, half width, back height, recline)
+    # bench: (cushion front y, cushion back y, top z, half width, back height, recline, headrests)
+    # panels: side trims from the front back, (y front, y back, kind); None = the end of the lining
+    "hatch": {"front": 0.83, "back": -1.88, "pillar": -0.315, "arm": 0.62, "shelf": 0.975,
+              "dash": (0.52, 0.995, 0.61, 0.62), "wheel": (0.32, 0.885, 25.0),
+              "seat": (0.355, 0.22, -0.24, 0.50, 0.255, 0.60, 17.0),
+              "bench": (-0.62, -1.02, 0.515, 0.70, 0.50, 22.0, 2),
+              "panels": [(0.86, -0.315, "front"), (-0.315, -1.08, "rear"), (-1.08, None, "plain")]},
+    "sedan": {"front": 0.93, "back": -1.47, "pillar": -0.38, "arm": 0.61, "shelf": 0.972,
+              "dash": (0.58, 0.990, 0.67, 0.62), "wheel": (0.38, 0.885, 25.0),
+              "seat": (0.37, 0.28, -0.18, 0.50, 0.26, 0.61, 17.0),
+              "bench": (-0.56, -0.98, 0.51, 0.72, 0.52, 24.0, 2),
+              "panels": [(0.94, -0.38, "front"), (-0.38, -1.13, "rear"), (-1.13, None, "plain")]},
+    "van": {"front": 1.24, "back": -0.08, "pillar": 0.0, "arm": 0.70, "load": (-0.11, -2.10),
+            "dash": (0.93, 1.12, 1.00, 0.80), "wheel": (0.79, 1.10, 36.0),
+            "seat": (0.42, 0.55, 0.13, 0.66, 0.26, 0.64, 10.0),
+            "panels": [(None, 0.91, "plain"), (0.91, None, "front")]},
+    "micro": {"front": 0.49, "back": -1.40, "pillar": -0.45, "arm": 0.63, "shelf": 0.950,
+              "dash": (0.32, 0.975, 0.39, 0.63), "wheel": (0.17, 0.875, 28.0),
+              "seat": (0.31, 0.02, -0.40, 0.53, 0.22, 0.62, 14.0),
+              "bench": (-0.60, -0.92, 0.535, 0.37, 0.48, 18.0, 2),
+              "panels": [(0.58, -0.45, "front"), (-0.45, -0.88, "rear"), (-0.88, None, "plain")]},
+}
+
+_LINE = 0.022                                                  # lining depth inside the skin
+_MK_LIN, _MK_CAPF, _MK_CAPR, _MK_SIDE, _MK_WS, _MK_RS, _MK_SEAL = 60, 61, 62, 63, 64, 65, 66   # marks while cutting
+_ARCH_X = 0.41                                                 # inner wall of the wheel arches (see _arch_cutters)
+
+
+def _seg_dist(p, a, b):
+    ab = b - a
+    t = max(0.0, min(1.0, (p - a).dot(ab) / max(ab.length_squared, 1e-12)))
+    return (a + ab * t - p).length
+
+
+def _thin(n, err, tol, span):
+    """Indices of 0..n-1 to keep so that straight pieces between kept ones stay within tol (err(i, j))."""
+    keep, i = [0], 0
+    while i < n - 1:
+        j = i + 1
+        while j + 1 < n and j + 1 - i <= span and err(i, j + 1) <= tol:
+            j += 1
+        keep.append(j)
+        i = j
+    return keep
+
+
+def _arch_top(S, W, y, m=0.03):
+    """Top of a wheel arch at `y` grown by m (for |x| > _ARCH_X), or None away from the arches."""
+    ra = W["Ro"] + S["arch"] + m
+    zc = W["Ro"] - FLAT + 0.006
+    top = None
+    for ya in (S["yf"], S["yr"]):
+        dy = y - ya
+        if abs(dy) < ra:
+            z = zc + math.sqrt(ra * ra - dy * dy)
+            top = z if top is None else max(top, z)
+    return top
+
+
+def _off_arches(p, S, W, m=0.03):
+    """Pull a point that would sit in (or within m of) a wheel arch in past the arch's inner wall."""
+    top = _arch_top(S, W, p.y, m) if abs(p.x) > _ARCH_X - m else None
+    if top is not None and p.z < top:
+        p = p.copy()
+        p.x = math.copysign(_ARCH_X - m, p.x)
+    return p
+
+
+def _lift_off_arches(verts, S, W, m=0.03):
+    for v in verts:
+        if abs(v.co.x) > _ARCH_X - m:
+            top = _arch_top(S, W, v.co.y, m)
+            if top is not None and v.co.z < top:
+                v.co.z = top
+
+
+def _lining(P, S, W, y_back, y_front, zc, panes=True, ws=True, rear=True, tol=0.014):
+    """Inner skin from y_back to y_front: a band from one sill over the roof to the other (rays from a centre
+    line at height zc(y), level-right round to level-left), each end closed by a full ring.  Facets are
+    thinned so straight pieces stay within `tol` of the skin.  Windows are cut out exactly as in _carve_body
+    and a reveal runs from each opening to its glass.  Faces carry _MK_* marks for the caller."""
+    from shapely.geometry import Polygon, box as sbox
+
+    rows = S["rows"]
+    belt = lambda y: _interp(rows, y, 2)
+    ny = max(2, int(round((y_front - y_back) / 0.025)))
+    fy = [y_back + (y_front - y_back) * i / ny for i in range(ny + 1)]
+    dirs = [Vector((math.cos(math.radians(3.0 * k)), 0.0, math.sin(math.radians(3.0 * k)))) for k in range(61)]
+
+    def inset(c, d):
+        loc, nrm, gl = P.ray(c, d)
+        if loc is None:
+            return c + d * 0.4, c + d * (0.4 - _LINE), True
+        return loc, loc - d * (_LINE / max(0.45, abs(d.dot(nrm)))), gl
+
+    H, O, G = [], [], []
+    for y in fy:
+        c = Vector((0.0, y, zc(y)))
+        got = [inset(c, d) for d in dirs]
+        H.append([g[0] for g in got])
+        O.append([g[1] for g in got])
+        G.append([g[2] for g in got])
+
+    def err_a(i, j):
+        worst = 0.0
+        for hr, gr in zip(H, G):
+            if gr[i] or gr[j]:
+                continue
+            for k in range(i + 1, j):
+                if not gr[k]:
+                    worst = max(worst, _seg_dist(hr[k], hr[i], hr[j]))
+                    if worst > tol:
+                        return worst
+        return worst
+
+    ka = _thin(len(dirs), err_a, tol, 8)
+
+    def err_y(i, j):
+        worst = 0.0
+        for k in ka:
+            if G[i][k] or G[j][k]:
+                continue
+            for s in range(i + 1, j):
+                if not G[s][k]:
+                    worst = max(worst, _seg_dist(H[s][k], H[i][k], H[j][k]))
+                    if worst > tol:
+                        return worst
+        return worst
+
+    ks = _thin(len(fy), err_y, tol, 12)
+    bm = bmesh.new()
+    V = [[bm.verts.new(O[s][k]) for k in ka] for s in ks]
+    for a, b in zip(V[:-1], V[1:]):
+        for k in range(len(ka) - 1):
+            f = _face(bm, (a[k], a[k + 1], b[k + 1], b[k]), _MK_LIN)
+            f.normal_update()
+            c = f.calc_center_median()
+            if f.normal.dot(Vector((0.0, c.y, zc(c.y))) - c) < 0:
+                f.normal_flip()
+    # end caps: the band's end ring continued round underneath
+    for row, y, mark, sign in ((V[-1], fy[-1], _MK_CAPF, -1.0), (V[0], fy[0], _MK_CAPR, 1.0)):
+        c = Vector((0.0, y, zc(y)))
+        low = []
+        for a in range(190, 360, 10):
+            d = Vector((math.cos(math.radians(a)), 0.0, math.sin(math.radians(a))))
+            low.append(bm.verts.new(_off_arches(inset(c, d)[1], S, W)))
+        f = _face(bm, list(row) + low, mark)
+        f.normal_update()
+        if f.normal.y * sign < 0:
+            f.normal_flip()
+    # windows: the same outlines the skin was cut with
+    LIN = {_MK_LIN}
+    if panes:
+        dlo = Polygon(S["dlo"]).buffer(-0.016, join_style=2)
+        sp = lambda c, n: abs(n.x) > 0.2 and abs(c.x) > 0.25 and c.z > belt(c.y) - 0.10
+        for ya, yb_ in S["panes"]:
+            pane = dlo.intersection(sbox(ya, -9.0, yb_, 9.0)).simplify(0.001)
+            if not pane.is_empty and pane.area > 0.01:
+                carve(bm, "yz", list(pane.exterior.coords)[:-1], sp, _MK_SIDE, margin=0.3, mats=LIN)
+    if ws:
+        wb, wt, xb, xt = S["ws"]
+        wp = lambda c, n: n.z < -0.15 and c.z > belt(c.y) - 0.05
+        carve(bm, "xy", [(-xb, wb), (xb, wb), (xt, wt), (-xt, wt)], wp, _MK_LIN, _MK_WS, inset=0.03, margin=0.3,
+              mats=LIN)
+    if rear:
+        poly, ylim, kind = S["rs"]
+        if kind == "slope":
+            rp = lambda c, n: n.y > 0.03 and n.z < -0.1 and c.y < ylim + 0.1 and c.z > belt(c.y) - 0.02
+        else:
+            rp = lambda c, n: n.y > 0.15 and c.y < ylim + 0.1 and c.z > belt(c.y) - 0.06
+        carve(bm, "xz", poly, rp, _MK_LIN, _MK_RS, inset=0.025, mirror=kind == "rear_pair", margin=0.3, mats=LIN)
+        carve(bm, "xz", poly, lambda c, n: n.y > 0.5 and c.y < ylim + 0.1, _MK_CAPR, _MK_RS, inset=0.025,
+              mirror=kind == "rear_pair", margin=0.7, mats={_MK_CAPR})
+    # open the windows and run a reveal from each opening's edge straight out to the glass
+    bm.normal_update()
+    holes = {_MK_SIDE: None, _MK_WS: Vector((0.0, 0.0, 1.0)), _MK_RS: Vector((0.0, -1.0, 0.0))}
+    rims = []
+    for f in bm.faces:
+        if f.material_index in holes:
+            hc = f.calc_center_median()
+            for e in f.edges:
+                other = [g for g in e.link_faces if g is not f]
+                if other and other[0].material_index not in holes:
+                    rims.append((e.verts[0], e.verts[1], f.material_index, hc))
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index in holes], context="FACES")
+    tips = {}
+
+    def tip(v, kind):
+        if (v, kind) not in tips:
+            d = holes[kind] or Vector((math.copysign(1.0, v.co.x), 0.0, 0.0))
+            loc, _, _ = P.ray(v.co, d)
+            ok = loc is not None and (loc - v.co).length < 0.075
+            tips[(v, kind)] = bm.verts.new(loc - d * 0.0015 if ok else v.co + d * 0.012)
+        return tips[(v, kind)]
+
+    walls, base = [], {}
+    for v1, v2, kind, hc in rims:
+        t1, t2 = tip(v1, kind), tip(v2, kind)
+        base[t1], base[t2] = v1, v2
+        f = _face(bm, (v1, v2, t2, t1), _MK_SEAL)
+        f.normal_update()
+        if f.normal.dot(hc - f.calc_center_median()) < 0:
+            f.normal_flip()
+        walls.append((f, t1, t2))
+    # where a reveal would cut across the skin (a corner where the glass edge turns away), pull it back in
+    for _ in range(10):
+        vs = list({v for f, _, _ in walls for v in f.verts})
+        idx = {v: i for i, v in enumerate(vs)}
+        tree = BVHTree.FromPolygons([v.co.copy() for v in vs], [[idx[v] for v in f.verts] for f, _, _ in walls])
+        bad = {j for _, j in P.bvh.overlap(tree)}
+        if not bad:
+            break
+        for j in bad:
+            for t in walls[j][1:]:
+                t.co = base[t].co + (t.co - base[t].co) * 0.6
+    return bm
+
+
+def _trim_profile(belt, z_arm, z_bot, arm):
+    """Cross-section of a side trim as (depth in from the skin, z), from the window sill down and back up the
+    skin.  arm: True (armrest), False (door, no armrest here), None (plain panel, fewer points)."""
+    top = [(0.006, belt - 0.004), (0.046, belt - 0.003), (0.060, belt - 0.022)]
+    bot = [(0.074, z_bot + 0.008), (0.030, z_bot)]
+    if arm is None:
+        return top + [(0.064, (belt - 0.022 + z_bot) / 2)] + bot
+    if z_arm - 0.05 > z_bot + 0.15:
+        if arm:
+            mid = [(0.066, z_arm + 0.050), (0.112, z_arm + 0.030), (0.118, z_arm - 0.006), (0.084, z_bot + 0.125)]
+        else:
+            mid = [(0.066, z_arm + 0.050), (0.068, z_arm + 0.030), (0.068, z_arm - 0.006), (0.082, z_bot + 0.125)]
+    else:                                   # beside a wheel arch: no room for the armrest
+        za, zb = belt - 0.022, z_bot + 0.008
+        mid = [(0.064 + 0.002 * t, za + (zb - za) * (t + 1) / 5) for t in range(4)]
+    return top + mid + bot
+
+
+def _trims(bm, P, S, W, C, mm, ins, panels, front, back, ply=False):
+    """Door cards and side panels from the window sill down to the floor, both sides, stepping up over the
+    wheel arches.  Doors get an armrest, a map pocket, an inner handle and (front doors) a speaker."""
+    rows = S["rows"]
+    belt = lambda y: _interp(rows, y, 2)
+    ra = W["Ro"] + S["arch"]
+    zones = [(ya - ra - 0.08, ya + ra + 0.08) for ya in (S["yf"], S["yr"])]
+    SILL, CARD = (mm("veh_ply"), mm("veh_ply")) if ply else (mm("veh_dash"), mm("veh_doorcard"))
+    ARM, CHROME, DARK = mm(ins), mm("chrome"), mm("veh_gauge")
+    z_arm = C.get("arm", 0.62)
+
+    def z_bottom(y):
+        x = P.x(y, belt(y) - 0.10) - 0.06
+        return max(P.z_down(x, y + dy, 0.78) for dy in (-0.08, -0.04, 0.0, 0.04, 0.08)) + 0.03
+
+    for k, (ya, yb, kind) in enumerate(panels):
+        ya = front - 0.004 if ya is None else min(ya, front - 0.004)
+        yb = back + 0.004 if yb is None else max(yb, back + 0.004)
+        ya -= 0.0035 if k > 0 else 0.0
+        yb += 0.0035 if k < len(panels) - 1 else 0.0
+        if ya - yb < 0.05:
+            continue
+        door = kind in ("front", "rear") and not ply
+        a0, a1 = (ya - 0.28, yb + 0.07) if kind == "front" else (ya - 0.07, yb + 0.30)
+        has_arm = door and a0 - a1 > 0.15
+        ys = [ya, a0 + 0.04, a0, a1, a1 - 0.04, yb] if has_arm else [ya, yb]
+        stations = []
+        for y0, y1 in zip(ys[:-1], ys[1:]):
+            near = any(y1 <= z1 and y0 >= z0 for z0, z1 in zones)
+            n = max(1, int(math.ceil((y0 - y1) / (0.14 if near else 0.3))))
+            stations += [y0 + (y1 - y0) * q / n for q in range(n)]
+        stations.append(ys[-1])
+        profs = []
+        for y in stations:
+            arm = (a1 - 1e-6 <= y <= a0 + 1e-6) if door and has_arm else (False if door else None)
+            b = belt(y) if not ply else min(belt(y), 0.84 + 0.006)
+            prof = _trim_profile(b, z_arm, z_bottom(y), arm)
+            if ply:
+                prof = [(min(i, 0.028), z) for i, z in prof]
+            profs.append([(P.x(y, z) - i, y, z) for i, z in prof])
+        mis = ([SILL, SILL, CARD, ARM, ARM, CARD, CARD, CARD, CARD] if door else
+               [SILL, SILL, CARD, CARD, CARD, CARD])
+        for s in (1.0, -1.0):
+            _loft(bm, [[Vector((s * x, y, z)) for x, y, z in prof] for prof in profs], mis, cap_mi=CARD)
+        if not door:
+            continue
+        # inner handle in its recess near the front of the door, a speaker low down on front doors
+        yh, zh = ya - 0.13, belt(ya - 0.13) - 0.075
+        xf = P.x(yh, zh) - 0.064
+        zsp = (z_arm - 0.04 + z_bottom(ya - 0.2) + 0.125) / 2
+        xs = P.x(ya - 0.2, zsp) - 0.08
+        for s in (1.0, -1.0):
+            _bar(bm, (s * (xf - 0.002), yh - 0.055, zh), (s * (xf - 0.002), yh + 0.055, zh), 0.008, 0.030, DARK)
+            _bar(bm, (s * (xf - 0.0065), yh - 0.045, zh + 0.002), (s * (xf - 0.0065), yh + 0.03, zh + 0.002),
+                 0.006, 0.011, CHROME)
+            if kind == "front" and (z_arm - 0.04) - (zsp - 0.06) > 0.06:
+                _disc(bm, (s * (xs - 0.003), ya - 0.2, zsp), (-s, 0.0, 0.0), 0.055, mm("veh_shut"), segs=10)
+
+
+def _carpet(bm, P, S, W, y_front, y_back, mi, z_off=0.022):
+    """Floor covering from y_front to y_back following the floor, stepping in past the wheel arches."""
+    ra = W["Ro"] + S["arch"] + 0.045
+    zones = [(ya - ra, ya + ra) for ya in (S["yf"], S["yr"])]
+    ys = {y_front, y_back}
+    n = max(1, int(math.ceil((y_front - y_back) / 0.28)))
+    ys |= {y_back + (y_front - y_back) * q / n for q in range(n + 1)}
+    for z0, z1 in zones:
+        ys |= {y for y in (z1, z1 + 0.012, z0, z0 - 0.012) if y_back < y < y_front}
+    zone = lambda y: any(z0 - 1e-6 <= y <= z1 + 1e-6 for z0, z1 in zones)
+    rows = []
+    for y in sorted(ys, reverse=True):
+        xe = P.x(y, P.z_down(0.3, y, 0.7) + 0.05) - 0.03
+        if zone(y):
+            xe = min(xe, _ARCH_X - 0.015)
+        rows.append([bm.verts.new((xe * f, y, P.z_down(xe * f, y, 0.7) + z_off))
+                     for f in (-1.0, -0.78, -0.2, 0.0, 0.2, 0.78, 1.0)])
+    for a, b in zip(rows[:-1], rows[1:]):
+        for k in range(6):
+            f = _face(bm, (a[k], a[k + 1], b[k + 1], b[k]), mi)
+            f.normal_update()
+            if f.normal.z < 0:
+                f.normal_flip()
+
+
+def _seat(bm, x, yf, yb, zt, w, h, rec, FAB, INS, BASE, CHR, floor_z, headrest=True):
+    """A front seat facing +y: pedestal, bolstered cushion, reclined backrest, headrest on two posts."""
+    zb = zt - 0.13
+    z0, z1 = floor_z + 0.008, zb + 0.02
+    _bar(bm, (x, yf - 0.08, (z0 + z1) / 2), (x, yb + 0.06, (z0 + z1) / 2), w * 1.2, z1 - z0, BASE)
+
+    def sec(z, k):
+        ww = w * k
+        return [(-ww, zb), (-ww, z - 0.035), (-0.86 * ww, z + 0.014), (-0.64 * ww, z - 0.006), (0.64 * ww, z - 0.006),
+                (0.86 * ww, z + 0.014), (ww, z - 0.035), (ww, zb)]
+
+    rings = [[Vector((x + u, y, z)) for u, z in sec(zt + dz, k)]
+             for y, dz, k in ((yf, -0.04, 0.96), (yf - 0.055, 0.0, 1.0), (yb + 0.05, -0.012, 1.0), (yb, -0.03, 0.97))]
+    _loft(bm, rings, [FAB, FAB, FAB, INS, FAB, FAB, FAB, BASE], cap_mi=FAB)
+    r = math.radians(rec)
+    up, fwd, X = Vector((0.0, -math.sin(r), math.cos(r))), Vector((0.0, math.cos(r), math.sin(r))), Vector((1.0, 0.0, 0.0))
+    B = Vector((x, yb + 0.035, zb + 0.03))
+    rings = []
+    for v, k, lum, bol, T in ((0.0, 1.0, 0.0, 0.045, 0.11), (0.30 * h, 1.0, 0.018, 0.045, 0.10),
+                              (h - 0.06, 0.96, 0.0, 0.040, 0.085), (h, 0.84, -0.012, 0.022, 0.06)):
+        ww = w * k
+        rings.append([B + X * u + fwd * t + up * v for u, t in
+                      ((-ww, -T), (-ww, 0.012), (-0.85 * ww, bol), (-0.62 * ww, lum), (0.62 * ww, lum),
+                       (0.85 * ww, bol), (ww, 0.012), (ww, -T))])
+    _loft(bm, rings, [FAB, FAB, FAB, INS, FAB, FAB, FAB, FAB], cap_mi=FAB)
+    if headrest:
+        _headrest(bm, B + up * (h + 0.095) - fwd * 0.02, up, fwd, 0.125, FAB, CHR, B + up * (h - 0.03))
+
+
+def _headrest(bm, c, up, fwd, hw, FAB, CHR, post_foot):
+    X = Vector((1.0, 0.0, 0.0))
+    ell = [(0.047 * math.cos(q), 0.088 * math.sin(q)) for q in (math.radians(60 * i) for i in range(6))]
+    rings = [[c + X * xo + fwd * (a * k) + up * (b * k) for a, b in ell]
+             for xo, k in ((-hw, 0.84), (-hw + 0.03, 1.0), (hw - 0.03, 1.0), (hw, 0.84))]
+    _loft(bm, rings, FAB)
+    for s in (-1.0, 1.0):
+        foot = post_foot + X * (s * 0.075)
+        top = Vector((foot.x, c.y, c.z)) - up * 0.04
+        _tube(bm, [foot, top], 0.0065, CHR, segs=3)
+
+
+def _bench(bm, yf, yb, zt, W_, h, rec, n_head, FAB, INS, BASE, CHR, floor_z, S, W):
+    """Rear bench across the car: base, cushion with two seat dips, backrest, headrests; kept off the arches."""
+    zb = zt - 0.13
+    start = len(bm.verts)
+    zone_front = S["yr"] + W["Ro"] + S["arch"] + 0.05      # where the rear wheel arch begins (going back)
+    z0, z1 = floor_z + 0.008, zb + 0.02
+    zm = (z0 + z1) / 2
+    xi = _ARCH_X - 0.035
+    _bar(bm, (0.0, yf - 0.07, zm), (0.0, yb + 0.02, zm), 2 * xi, z1 - z0, BASE)
+    if W_ - 0.05 > xi + 0.03 and yf - 0.07 > zone_front + 0.03:
+        for s in (-1.0, 1.0):
+            xm = s * (xi + W_ - 0.05) / 2
+            _bar(bm, (xm, yf - 0.07, zm), (xm, max(yb + 0.02, zone_front), zm), W_ - 0.05 - xi, z1 - z0, BASE)
+
+    def sec(z, k):
+        ww = W_ * k
+        return [(-ww, zb), (-ww, z - 0.035), (-0.93 * ww, z + 0.008), (-0.5 * ww, z - 0.012), (0.0, z + 0.002),
+                (0.5 * ww, z - 0.012), (0.93 * ww, z + 0.008), (ww, z - 0.035), (ww, zb)]
+
+    rings = [[Vector((u, y, z)) for u, z in sec(zt + dz, k)]
+             for y, dz, k in ((yf, -0.04, 0.98), (yf - 0.055, 0.0, 1.0), (yb + 0.05, -0.012, 1.0), (yb, -0.03, 0.99))]
+    _loft(bm, rings, [FAB, FAB, INS, INS, INS, INS, FAB, FAB, BASE], cap_mi=FAB)
+    r = math.radians(rec)
+    up, fwd, X = Vector((0.0, -math.sin(r), math.cos(r))), Vector((0.0, math.cos(r), math.sin(r))), Vector((1.0, 0.0, 0.0))
+    B = Vector((0.0, yb + 0.035, zb + 0.03))
+    rings = []
+    for v, k, lum, T in ((0.0, 1.0, 0.0, 0.11), (0.35 * h, 1.0, 0.016, 0.10), (h - 0.05, 0.98, 0.0, 0.09),
+                         (h, 0.95, -0.01, 0.06)):
+        ww = W_ * k
+        rings.append([B + X * u + fwd * t + up * v for u, t in
+                      ((-ww, -T), (-ww, 0.01), (-0.93 * ww, 0.03), (-0.5 * ww, lum), (0.0, 0.012), (0.5 * ww, lum),
+                       (0.93 * ww, 0.03), (ww, 0.01), (ww, -T))])
+    _loft(bm, rings, [FAB, FAB, INS, INS, INS, INS, FAB, FAB, FAB], cap_mi=FAB)
+    bm.verts.ensure_lookup_table()
+    _lift_off_arches(bm.verts[start:], S, W)
+    xs = [-0.55 * W_, 0.55 * W_] if n_head == 2 else [-0.62 * W_, 0.0, 0.62 * W_]
+    for xh in xs:
+        c = B + X * xh + up * (h + 0.085) - fwd * 0.015
+        _headrest(bm, c, up, fwd, 0.105 if xh else 0.085, FAB, CHR, B + X * xh + up * (h - 0.03))
+    return B + up * h - fwd * 0.06            # top back edge (where the parcel shelf starts)
+
+
+def _wheel(bm, hub, tilt, mm):
+    """Steering wheel (rim, three spokes, hub) on its column running down into the dashboard."""
+    t = math.radians(tilt)
+    a = Vector((0.0, -math.cos(t), math.sin(t)))           # towards the driver
+    u = Vector((0.0, math.sin(t), math.cos(t)))            # up in the wheel's plane
+    v = a.cross(u)
+    RIM, DARK, COL = mm("veh_leather"), mm("veh_dash"), mm("veh_gauge")
+    R, r, n, m = 0.185, 0.0155, 12, 4
+    grid = []
+    for i in range(n):
+        q = 2 * math.pi * i / n
+        rad = u * math.cos(q) + v * math.sin(q)
+        grid.append([bm.verts.new(hub + rad * R + (rad * math.cos(p) + a * math.sin(p)) * r)
+                     for p in (2 * math.pi * j / m for j in range(m))])
+    for i in range(n):
+        for j in range(m):
+            f = _face(bm, (grid[i][j], grid[(i + 1) % n][j], grid[(i + 1) % n][(j + 1) % m], grid[i][(j + 1) % m]), RIM)
+            f.normal_update()
+            q = 2 * math.pi * (i + 0.5) / n
+            if f.normal.dot(f.calc_center_median() - (hub + (u * math.cos(q) + v * math.sin(q)) * R)) < 0:
+                f.normal_flip()
+    for q in (math.pi / 2, math.pi, 3 * math.pi / 2):
+        d = u * math.cos(q) + v * math.sin(q)
+        _bar(bm, hub + d * 0.035 - a * 0.012, hub + d * (R - 0.008) - a * 0.004, 0.042 if q == math.pi else 0.034,
+             0.012, DARK, up=a)
+    oct_ = [(0.058 * math.cos(math.radians(22.5 + 45 * i)), 0.052 * math.sin(math.radians(22.5 + 45 * i)))
+            for i in range(8)]
+    xf = Matrix.Translation(hub) @ Matrix((v, u, a)).transposed().to_4x4()
+    _prism(bm, oct_, -0.028, 0.012, DARK, xf)
+    _tube(bm, [hub - a * 0.02, hub - a * 0.30], 0.021, COL, segs=8)
+    sh = hub - a * 0.17 - u * 0.012
+    _bar(bm, sh - a * 0.07, sh + a * 0.07, 0.10, 0.075, DARK, up=u)
+
+
+def _dash(bm, P, S, C, mm, x_drv):
+    """Dashboard across the car, instrument hood and dials in front of the driver, centre stack with vents,
+    radio and knobs, glovebox.  Returns z of the dash top at (x, y) (for things lying on it)."""
+    y_tr, z_top, y_kn, z_kn = C["dash"]
+    yf = C["front"] - 0.004
+    ym = (yf + y_tr) / 2 + 0.03
+    floor_z = P.z_down(0.0, y_kn, 0.7)
+    DASH, TOP, GAUGE, DIAL = mm("veh_dash"), mm("veh_dash"), mm("veh_gauge"), mm("veh_dial")
+
+    def prof(x):
+        zw = lambda y: P.z_up(x, y, z_top - 0.25)
+        return [(yf, min(z_top + 0.03, zw(yf) - 0.012)), (ym, min(z_top + 0.012, zw(ym) - 0.025)),
+                (y_tr + 0.035, z_top), (y_tr, z_top - 0.03), (y_tr + 0.022, z_top - 0.10), (y_kn, z_kn + 0.03),
+                (y_kn + 0.035, z_kn - 0.045), (yf, z_kn - 0.06)]
+
+    rings = []
+    for xs in (-1.0, -0.5, 0.0, 0.5, 1.0):
+        pr = prof(xs if abs(xs) < 0.9 else math.copysign(0.6, xs))
+        if abs(xs) > 0.9:
+            rings.append([Vector((math.copysign(P.x(y, z) - 0.012, xs), y, z)) for y, z in pr])
+        else:
+            rings.append([Vector((xs, y, z)) for y, z in pr])
+    _loft(bm, rings, [TOP, TOP, TOP, DASH, DASH, DASH, DASH, DASH], cap_mi=DASH)
+    top_pts = {xs: prof(xs)[:3] for xs in (-0.5, 0.0, 0.5)}
+
+    def top_z(x, y):
+        def along(pr):
+            for (y0, z0), (y1, z1) in zip(pr[:-1], pr[1:]):
+                if y1 <= y <= y0:
+                    return z0 + (z1 - z0) * (y - y0) / (y1 - y0)
+            return pr[-1][1]
+
+        ks = sorted(top_pts)
+        x = max(ks[0], min(ks[-1], x))
+        for xa, xb in zip(ks[:-1], ks[1:]):
+            if xa <= x <= xb:
+                t = (x - xa) / (xb - xa)
+                return along(top_pts[xa]) * (1 - t) + along(top_pts[xb]) * t
+        return along(top_pts[ks[0]])
+
+    # demister vent along the foot of the windscreen, speaker grilles in the corners of the dash top
+    yv = yf - 0.045
+    for x0, x1 in ((-0.42, -0.04), (0.04, 0.42)):
+        a, b = Vector((x0, yv, top_z(x0, yv))), Vector((x1, yv, top_z(x1, yv)))
+        tn = Vector((0.0, -(top_z(0.0, yv + 0.02) - top_z(0.0, yv - 0.02)), 0.04)).normalized()
+        _bar(bm, a + tn * 0.0008, b + tn * 0.0008, 0.016, 0.0016, GAUGE, up=tn)
+    for s in (-1.0, 1.0):
+        yg = yf - 0.10
+        c = Vector((s * 0.58, yg, top_z(s * 0.58, yg)))
+        tn = Vector((0.0, -(top_z(s * 0.58, yg + 0.02) - top_z(s * 0.58, yg - 0.02)), 0.04)).normalized()
+        _disc(bm, c + tn * 0.0012, tn, 0.042, GAUGE, segs=10)
+    # instrument hood over a dark panel with two dials
+    xd = x_drv
+    sec = lambda k: [(y_tr + 0.20, z_top + 0.003), (y_tr + 0.13, z_top + 0.062 * k), (y_tr + 0.012, z_top + 0.066 * k),
+                     (y_tr - 0.004, z_top + 0.050 * k), (y_tr + 0.07, z_top + 0.040 * k)]
+    _loft(bm, [[Vector((xd + xo, y, z)) for y, z in sec(k)] for xo, k in
+               ((-0.175, 0.3), (-0.145, 1.0), (0.145, 1.0), (0.175, 0.3))], DASH)
+    p0, p1 = Vector((0.0, y_tr + 0.014, z_top + 0.004)), Vector((0.0, y_tr + 0.072, z_top + 0.036))
+    pn = Vector((0.0, -(p1 - p0).z, (p1 - p0).y)).normalized()
+    pc = (p0 + p1) / 2
+    _bar(bm, Vector((xd - 0.14, pc.y, pc.z)) - pn * 0.002, Vector((xd + 0.14, pc.y, pc.z)) - pn * 0.002, 0.006,
+         (p1 - p0).length, GAUGE, up=(p1 - p0))
+    for xo in (-0.065, 0.065):
+        c = Vector((xd + xo, pc.y, pc.z)) + pn * 0.0015
+        _disc(bm, c, pn, 0.032, DIAL, segs=12)
+        _disc(bm, c + pn * 0.0012, pn, 0.027, GAUGE, segs=12)
+        tip = c + pn * 0.0024 + Vector((0.016, 0.0, 0.0)) + (p1 - p0).normalized() * 0.012
+        nf = _face(bm, (bm.verts.new(c + pn * 0.0024 - Vector((0.002, 0.0, 0.0))),
+                        bm.verts.new(c + pn * 0.0024 + Vector((0.002, 0.0, 0.0))), bm.verts.new(tip)), mm("veh_amber"))
+        nf.normal_update()
+        if nf.normal.dot(pn) < 0:
+            nf.normal_flip()
+    # centre stack: vents, radio, climate knobs on its sloping face
+    A, B = Vector((0.0, y_tr + 0.03, z_top - 0.05)), Vector((0.0, y_tr + 0.10, floor_z + 0.16))
+    _loft(bm, [[Vector((xo, y, z)) for y, z in ((A.y, A.z), (B.y, B.z), (y_tr + 0.26, floor_z + 0.16),
+                                                 (y_tr + 0.22, z_top - 0.05))] for xo in (-0.11, 0.11)], DASH)
+    T = (B - A).normalized()
+    nf = Vector((0.0, -T.z, T.y))
+    if nf.y > 0:
+        nf.negate()
+    at = lambda xo, t: Vector((xo, 0.0, 0.0)) + A + (B - A) * t
+    for xo in (-0.05, 0.05):
+        c = at(xo, 0.09)
+        _bar(bm, c - Vector((0.035, 0, 0)) + nf * 0.001, c + Vector((0.035, 0, 0)) + nf * 0.001, 0.006, 0.04, GAUGE, up=T)
+    c = at(0.0, 0.30)
+    _bar(bm, c - Vector((0.085, 0, 0)) + nf * 0.002, c + Vector((0.085, 0, 0)) + nf * 0.002, 0.008, 0.05, GAUGE, up=T)
+    for xo in (-0.06, 0.0, 0.06):
+        c = at(xo, 0.52)
+        _tube(bm, [c - nf * 0.003, c + nf * 0.016], 0.014, DASH if xo else GAUGE, segs=6)
+    # round side vents at the ends of the dash face, glovebox lid on the passenger side
+    xv = min(0.66, P.x(y_tr, z_top - 0.06) - 0.10)
+    for s in (-1.0, 1.0):
+        c = Vector((s * xv, y_tr + 0.012, z_top - 0.062))
+        _disc(bm, c + Vector((0.0, -0.004, 0.0)), (0.0, -1.0, -0.25), 0.036, GAUGE, segs=10)
+    g0, g1 = Vector((0.0, y_tr + 0.022, z_top - 0.10)), Vector((0.0, y_kn, z_kn + 0.03))
+    gT = (g1 - g0).normalized()
+    gn = Vector((0.0, -gT.z, gT.y))
+    if gn.y > 0:
+        gn.negate()
+    gc = g0 + (g1 - g0) * 0.45
+    xg = -x_drv
+    _bar(bm, Vector((xg - 0.17, gc.y, gc.z)) + gn * 0.003, Vector((xg + 0.17, gc.y, gc.z)) + gn * 0.003, 0.008,
+         (g1 - g0).length * 0.62, DASH, up=gT)
+    _bar(bm, Vector((xg - 0.04, gc.y, gc.z)) + gn * 0.0075 - gT * 0.03, Vector((xg + 0.04, gc.y, gc.z)) + gn * 0.0075
+         - gT * 0.03, 0.004, 0.012, GAUGE, up=gT)
+    return top_z
+
+
+def _cabin(name, style, S, W, P, coll, seed):
+    """The cabin object (see the notes above CABIN)."""
+    C = CABIN[style]
+    rows = S["rows"]
+    belt = lambda y: _interp(rows, y, 2)
+    rng = random.Random(seed * 7919 + 17)
+    scheme = rng.choice(["dark", "dark", "grey", "beige", "blue"])
+    mm = Mats("veh_headliner")
+    FAB, INS = mm(f"veh_seat_{scheme}"), mm(f"veh_seat_{scheme}_in")
+    CARPET, DASH, PILLAR, HEAD, SEAL = mm("veh_carpet"), mm("veh_dash"), mm("veh_pillar"), mm("veh_headliner"), mm("veh_seal")
+    CHR, CARD, PLY = mm("chrome"), mm("veh_doorcard"), mm("veh_ply")
+    x_drv = C["seat"][0]
+    front, back = C["front"], C["back"]
+    bm = bmesh.new()
+
+    def lining(y0, y1, zc, capf, capr, **kw):
+        lb = _lining(P, S, W, y0, y1, zc, **kw)
+        for f in lb.faces:
+            mk = f.material_index
+            if mk == _MK_LIN:
+                c, n = f.calc_center_median(), f.normal
+                f.material_index = (PLY if capf == PLY else
+                                    HEAD if n.z < -0.55 and c.z > belt(c.y) + 0.2 else
+                                    CARD if c.z < belt(c.y) + 0.005 else PILLAR)
+            elif mk == _MK_CAPF:
+                f.material_index = capf
+            elif mk == _MK_CAPR:
+                f.material_index = capr
+            else:
+                f.material_index = SEAL
+        _merge(bm, lb)
+
+    zc = lambda y: belt(y) - 0.07
+    if style == "van":
+        lining(back, front, zc, DASH, PILLAR, rear=False)
+        y_l0, y_l1 = C["load"]
+        lining(y_l1, y_l0, lambda y: 0.80, PLY, PLY, panes=False, ws=False)
+    else:
+        lining(back, front, zc, DASH, PILLAR if S["rs"][2] != "slope" else CARPET)
+    # door cards and side panels, carpet, tunnel and console
+    _trims(bm, P, S, W, C, mm, f"veh_seat_{scheme}_in", C["panels"], front, back)
+    _carpet(bm, P, S, W, front - 0.006, back + 0.006, CARPET)
+    sx, syf, syb, szt, sw, sh, srec = C["seat"]
+    y_t1 = (C["bench"][0] + 0.06) if "bench" in C else back + 0.02
+
+    def flo(x0, x1, y0, y1):
+        """Highest floor point under a footprint (the floor pan is not flat: it has a low ridge)."""
+        nx, ny = max(1, int(math.ceil((x1 - x0) / 0.05))), max(1, int(math.ceil(abs(y1 - y0) / 0.05)))
+        return max(P.z_down(x0 + (x1 - x0) * i / nx, y0 + (y1 - y0) * j / ny, 0.7)
+                   for i in range(nx + 1) for j in range(ny + 1))
+
+    ty = [front - 0.01, (front + y_t1) / 2, y_t1]
+    tz = [flo(-0.15, 0.15, y - 0.12, y + 0.12) + 0.004 for y in ty]
+    _loft(bm, [[Vector((u, y, z0 + z)) for u, z in ((-0.15, 0.0), (-0.12, 0.75 * hh), (-0.055, hh), (0.055, hh),
+                                                  (0.12, 0.75 * hh), (0.15, 0.0))]
+               for y, z0, hh in zip(ty, tz, (0.14, 0.10, 0.06))], CARPET)
+    y_tr, z_top = C["dash"][0], C["dash"][1]
+    c0, c1 = y_tr + 0.12, syb + 0.12
+    cz0 = flo(-0.085, 0.085, c1, c0) + 0.02                 # console: standing in the tunnel
+    cz1 = cz0 + 0.185
+    cons = [(-0.085, cz0), (-0.085, cz1 - 0.02), (-0.065, cz1), (0.065, cz1), (0.085, cz1 - 0.02), (0.085, cz0)]
+    _loft(bm, [[Vector((u, y, z)) for u, z in cons] for y in (c0, c0 - 0.015, c1 + 0.015, c1)], DASH)
+    g = Vector((0.0, c0 - 0.10, cz1))
+    _tube(bm, [g - Vector((0, 0, 0.004)), g + Vector((0, -0.006, 0.05))], [0.042, 0.016], mm("veh_vinyl"), segs=6)
+    _tube(bm, [g + Vector((0, -0.006, 0.045)), g + Vector((0, -0.02, 0.13))], 0.0065, CHR, segs=4)
+    _tube(bm, [g + Vector((0, -0.018, 0.12)), g + Vector((0, -0.022, 0.145)), g + Vector((0, -0.026, 0.165))],
+          [0.016, 0.021, 0.016], mm("veh_leather"), segs=6)
+    hb = Vector((0.0, c1 + 0.12, cz1 - 0.004))
+    _bar(bm, hb, hb + Vector((0.0, -0.20, 0.06)), 0.032, 0.026, DASH)
+    # dashboard, steering wheel, mirror
+    top_z = _dash(bm, P, S, C, mm, x_drv)
+    wy, wz, wt = C["wheel"]
+    _wheel(bm, Vector((x_drv, wy, wz)), wt, mm)
+    wt_y = S["ws"][1]
+    ym = wt_y + 0.055
+    zg = P.z_up(0.0, ym, belt(ym) + 0.1)
+    mc = Vector((0.0, ym - 0.035, zg - 0.085))
+    _tube(bm, [Vector((0.0, ym - 0.004, zg - 0.002)), mc + Vector((0.0, 0.004, 0.03))], [0.011, 0.007], DASH, segs=6)
+    ell = [(0.022 * math.cos(q), 0.036 * math.sin(q)) for q in (math.radians(60 * i) for i in range(6))]
+    _loft(bm, [[mc + Vector((xo, a * k, b * k)) for a, b in ell] for xo, k in
+               ((-0.12, 0.75), (-0.10, 1.0), (0.10, 1.0), (0.12, 0.75))], DASH)
+    _bar(bm, mc + Vector((-0.095, -0.0205, 0.0)), mc + Vector((0.095, -0.0205, 0.0)), 0.003, 0.05, mm("veh_mirror"))
+    # seats and belts
+    fz = lambda y: P.z_down(0.0, y, 0.7)
+    for s in (1.0, -1.0):
+        under = flo(s * sx - 0.62 * sw, s * sx + 0.62 * sw, syb + 0.06, syf - 0.08)
+        _seat(bm, s * sx, syf, syb, szt, sw, sh, srec, FAB, INS, CARPET if style != "van" else DASH, CHR, under)
+        yB = C["pillar"] - 0.03
+        zb_ = belt(yB) + 0.30
+        top = Vector((s * (P.x(yB, zb_) - 0.032), yB, zb_))
+        bot = Vector((s * (sx + sw + 0.03), syb + 0.06, szt - 0.03))
+        _bar(bm, top, bot, 0.045, 0.004, mm("veh_belt"), up=(1.0, 0.0, 0.0))
+        _rbox(bm, top + Vector((0.0, 0.0, 0.01)), (0.012, 0.028, 0.022), 0.008, PILLAR, ticks=-1)
+    bench_top = None
+    if "bench" in C:
+        byf, byb, bzt, bW, bh, brec, nh = C["bench"]
+        under = flo(-0.38, 0.38, byb + 0.02, byf - 0.07)
+        bench_top = _bench(bm, byf, byb, bzt, bW, bh, brec, nh, FAB, INS, CARPET, CHR, under, S, W)
+        # parcel shelf from the top of the bench back to the back panel
+        zs = C["shelf"]
+        y0, y1 = bench_top.y - 0.01, back + 0.006
+        rings = []
+        for y in (y0, (y0 + y1) / 2, y1):
+            xe = P.x(y, zs) - 0.05
+            rings.append([Vector((u, y, z)) for u, z in ((-xe, zs - 0.012), (-xe, zs), (xe, zs), (xe, zs - 0.012))])
+        _loft(bm, rings, CARPET)
+        if S["rs"][2] == "slope":
+            for s in (-1.0, 1.0):
+                _disc(bm, (s * 0.42, (y0 + y1) / 2, zs + 0.0015), (0.0, 0.0, 1.0), 0.07, mm("veh_gauge"), segs=10)
+    else:
+        # van: plywood load bay behind the bulkhead, wheel-arch boxes, things being carried
+        y_l0, y_l1 = C["load"]
+        _trims(bm, P, S, W, C, mm, "veh_ply", [(y_l0, y_l1, "plain")], y_l0, y_l1, ply=True)
+        _carpet(bm, P, S, W, y_l0 - 0.006, y_l1 + 0.006, PLY, z_off=0.012)
+        ra = W["Ro"] + S["arch"]
+        zcw = W["Ro"] - FLAT + 0.006
+        ya = S["yr"]
+        zt_ = zcw + ra + 0.05
+        for s in (-1.0, 1.0):
+            rr = []
+            for y in (ya + ra + 0.035, ya - ra - 0.035):
+                xo = P.x(y, zt_) - 0.03
+                fl = P.z_down(_ARCH_X - 0.03, y, 0.7) + 0.012
+                rr.append([Vector((s * x, y, z)) for x, z in ((xo, zt_), (_ARCH_X - 0.01, zt_), (_ARCH_X - 0.025, zt_ - 0.015),
+                                                             (_ARCH_X - 0.025, fl))])
+            _loft(bm, rr, PLY, closed=False)
+        # boxes being carried, in front of the wheel arches
+        y_free = ya + ra + 0.08
+        for k in range(rng.randint(1, 3)):
+            hx, hy, hz = rng.uniform(0.14, 0.24), rng.uniform(0.12, 0.22), rng.uniform(0.08, 0.17)
+            yb_ = rng.uniform(y_free + 0.25, y_l0 - 0.3)
+            xb_ = rng.uniform(-0.25, 0.25)
+            _box(bm, (xb_, yb_, fz(yb_) + 0.012 + hz), (hx, hy, hz), rng.uniform(-0.4, 0.4), mm("veh_cardboard"))
+    # a few things left in the car
+    props = rng.sample(["disc", "tree", "cushion", "box", "tissues", "bottle"], k=rng.randint(1, 3))
+    if "disc" in props:
+        yd = (C["front"] + y_tr) / 2 + 0.03
+        p0, p1 = Vector((-x_drv, yd + 0.06, top_z(-x_drv, yd + 0.06))), Vector((-x_drv, yd - 0.06, top_z(-x_drv, yd - 0.06)))
+        n = Vector((0.0, -(p1 - p0).z, (p1 - p0).y)).normalized()
+        if n.z < 0:
+            n.negate()
+        c = (p0 + p1) / 2 + n * 0.0018
+        _bar(bm, c - Vector((0.075, 0, 0)), c + Vector((0.075, 0, 0)), 0.115, 0.003, mm("veh_disc_blue"), up=n)
+        _disc(bm, c + n * 0.0018, n, 0.034, mm("veh_plate_white"), segs=12)
+    if "tree" in props:
+        hang = mc + Vector((0.0, 0.0, -0.034))
+        _tube(bm, [hang, hang + Vector((0.0, 0.0, -0.07))], 0.0012, mm("veh_belt"), segs=3)
+        tree = [(0.0, 0.0), (0.028, -0.04), (0.012, -0.04), (0.03, -0.075), (-0.03, -0.075), (-0.012, -0.04), (-0.028, -0.04)]
+        xf = Matrix.Translation(hang + Vector((0.0, 0.0, -0.07))) @ Matrix.Rotation(math.pi / 2, 4, "X")
+        _prism(bm, tree, -0.001, 0.001, mm("veh_tree"), xf)
+    if "bottle" in props:
+        y_b = (syf + syb) / 2
+        z_b = szt + 0.024
+        _tube(bm, [Vector((-sx - 0.11, y_b - 0.02, z_b)), Vector((-sx + 0.07, y_b + 0.01, z_b)),
+                   Vector((-sx + 0.10, y_b + 0.015, z_b + 0.002)), Vector((-sx + 0.13, y_b + 0.02, z_b + 0.002))],
+              [0.031, 0.031, 0.014, 0.014], mm("plastic_blue"), segs=8)
+    if "bench" in C:
+        byf, byb, bzt, bW = C["bench"][:4]
+        if "cushion" in props:
+            # leaning on the backrest, its foot on the seat
+            xs_ = rng.choice([-0.5, 0.5]) * min(bW, 0.6)
+            rr = math.radians(C["bench"][5] + 6)
+            rot = Matrix.Rotation(rr, 4, "X") @ Matrix.Rotation(rng.uniform(-0.25, 0.25), 4, "Y")
+            zc_ = bzt + 0.13
+            yc_ = byb + 0.035 - (zc_ - (bzt - 0.10)) * math.tan(math.radians(C["bench"][5])) + 0.075
+            c_ = Vector((xs_, yc_, zc_))
+            ell = [(0.05 * math.cos(q), 0.13 * math.sin(q)) for q in (math.radians(22.5 + 45 * i) for i in range(8))]
+            rot3 = rot.to_3x3()
+            _loft(bm, [[c_ + rot3 @ Vector((xo, a * k, b * k)) for a, b in ell] for xo, k in
+                       ((-0.16, 0.6), (-0.12, 1.0), (0.12, 1.0), (0.16, 0.6))],
+                  mm(rng.choice(["veh_cushion_red", "veh_cushion_ochre"])))
+        if "box" in props:
+            xs_ = rng.choice([-0.45, 0.45]) * min(bW, 0.6)
+            _box(bm, (xs_, (byf + byb) / 2 + 0.02, bzt + 0.078), (0.15, 0.12, 0.09), rng.uniform(-0.5, 0.5),
+                 mm("veh_cardboard"))
+        if "tissues" in props and bench_top is not None:
+            zs = C["shelf"]
+            _box(bm, (rng.uniform(-0.4, 0.4), (bench_top.y + back) / 2, zs + 0.045), (0.12, 0.06, 0.045),
+                 rng.uniform(-0.3, 0.3), mm("veh_plate_white"))
+    return _finish(bm, name, mm, coll, angle=40.0)
+
+
 def build_car(name: str, style: str, paint: str, coll=None, seed: int = 0) -> list[bpy.types.Object]:
     """A parked car (hatch | sedan | van | micro) centred on the origin, front towards +Y."""
     S, W = STYLES[style], WHEELS[STYLES[style]["wheel"]]
     rng = random.Random(seed)
-    body, bvh = _build_body(f"{name}_body", S, W, paint, coll)
-    parts = [body, _details(f"{name}_details", S, W, paint, bvh, coll), _underbody(f"{name}_under", S, W, coll)]
+    body, shell = _build_body(f"{name}_body", S, W, paint, coll)
+    parts = [body, _details(f"{name}_details", S, W, paint, shell.bvh, coll), _underbody(f"{name}_under", S, W, coll)]
     mesh = wheel_mesh(style, W)
     zc = W["Ro"] - FLAT
     steer = rng.choice([0.0, 0.0, 5.0, -8.0, 12.0, -14.0])
@@ -1238,7 +2390,10 @@ def build_car(name: str, style: str, paint: str, coll=None, seed: int = 0) -> li
                               Matrix.Rotation(math.radians((0.0 if sx > 0 else 180.0) + turn), 4, "Z"))
             parts.append(o)
     geo.tag(parts, role="vehicle", collide="none", lm=1.0)
-    return parts + _colliders(name, S, W, coll)
+    # the cabin behind the glass: a separate object that needs little light-map space
+    cabin = _cabin(f"{name}_cabin", style, S, W, shell, coll, seed)
+    geo.tag(cabin, role="vehicle", collide="none", lm=0.3)
+    return parts + [cabin] + _colliders(name, S, W, coll)
 
 
 # ---------------------------------------------------------------- two-wheelers: shared helpers
@@ -1698,7 +2853,11 @@ def demo(coll, name=None) -> dict:
         yc = -(hw + 0.20)
         geo.place(build_car(name, name, _DEMO_PAINT[name], coll, seed=3), (0.0, yc, 0.0), -90.0)
         length = S["rows"][-1][0] - S["rows"][0][0]
-        return {"focus": (0.0, yc, 0.65), "radius": length * 0.62, "cat": _car_cats(S, W, 0.0, yc)}
+        hx = sum(p[0] for p in S["head"]) / 4
+        close = [(CABIN[name]["seat"][2], yc - hw - 0.85, 0.0),                    # looking up at the side windows
+                 (S["rows"][-1][0] + 0.70, yc - hx, -90.0),                         # a headlamp from 70 cm
+                 (S["rows"][0][0] - 0.70, yc - 0.62, 90.0)]                         # a tail lamp from 70 cm
+        return {"focus": (0.0, yc, 0.65), "radius": length * 0.62, "cat": _car_cats(S, W, 0.0, yc) + close}
     if name == "scooter":
         geo.place(build_scooter("scooter", "car_white", coll), (0.0, -0.8, 0.0), -90.0)
         return {"focus": (0.0, -0.8, 0.55), "radius": 1.3,
