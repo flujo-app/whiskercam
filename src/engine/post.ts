@@ -95,6 +95,8 @@ export class Post {
   private frame = 0;
   /** samples per pixel when drawing the two views (0 = no edge smoothing; set before setSize) */
   msaa = 4;
+  /** phones: shorter streaks and a smaller glow chain, which is most of what the finishing costs there (set before setSize) */
+  lean = false;
   private bloom: THREE.WebGLRenderTarget[] = [];
   private bloomUp: THREE.WebGLRenderTarget[] = [];
   private meter: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget];
@@ -260,9 +262,14 @@ export class Post {
     });
     this.bloom = [];
     this.bloomUp = [];
+    const taps = this.lean ? 6 : 14;
+    if (this.blurMat.defines?.TAPS !== taps) {
+      this.blurMat.defines = { TAPS: taps };
+      this.blurMat.needsUpdate = true;
+    }
     let w = width;
     let h = height;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < (this.lean ? 3 : 5); i++) {
       w = Math.max(2, w >> 1);
       h = Math.max(2, h >> 1);
       const make = () =>

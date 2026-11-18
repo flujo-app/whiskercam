@@ -3,12 +3,14 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { plainNumbers } from './geometry';
 import { Pictures } from './pictures';
-import { Materials, type LightRef, type MatDesc, setProbe } from './materials';
+import { FLAT_MIX, Materials, type LightRef, type MatDesc, setProbe } from './materials';
 
 export interface ChunkInfo {
   name: string;
   kind: 'ground' | 'struct' | 'foliage' | 'far';
   file: string;
+  /** the same shapes with fewer triangles, for phones */
+  lite?: string;
   sun?: string;
   irr?: string;
   res?: number;
@@ -24,7 +26,7 @@ export interface WorldInfo {
   sky_irradiance_up: [number, number, number];
   irr_range: number;
   chunks: ChunkInfo[];
-  scatter?: Record<string, { file: string; plant?: boolean; matrices: number[] }>;
+  scatter?: Record<string, { file: string; lite?: string; plant?: boolean; matrices: number[] }>;
   props?: PropInfo;
   ground_light?: { file: string; x0: number; z0: number; w: number; h: number };
   estate?: { x0: number; z0: number; w: number; h: number };
@@ -147,11 +149,93 @@ function lightTexture(pictures: Pictures | null, url: string, single: boolean): 
   return tex;
 }
 
+/** Parts of parked cars, by the name of what they are made of. */
+export const isCarPart = (name: string): boolean => /^(car_|veh_|glass_car|glass_lamp|chrome$|light_)/.test(name);
+
+/**
+ * One mesh out of many plain-coloured ones.
+ *
+ * A building is made of dozens of plain materials (frames, sills, rails, pipes, plates), a parked car of thirty,
+ * and every one of them was a separate job for the graphics card in every chunk. Drawing them is not hard; telling
+ * the card about each one is what costs, on a phone above all. Here they become one mesh per chunk: the colour,
+ * roughness and metalness of each part travel with its corner points instead of with a material.
+ */
+function mergeFlats(meshes: THREE.Mesh[], descs: Record<string, MatDesc>): THREE.BufferGeometry {
+  let nv = 0;
+  let ni = 0;
+  for (const m of meshes) {
+    nv += m.geometry.attributes.position.count;
+    ni += m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count;
+  }
+  const pos = new Float32Array(nv * 3);
+  const nor = new Int8Array(nv * 4);
+  const uv1 = new Uint16Array(nv * 2);
+  const tint = new Uint8Array(nv * 4);
+  const extra = new Uint8Array(nv * 4);
+  const index = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  const v = new THREE.Vector3();
+  const nm = new THREE.Matrix3();
+  let v0 = 0;
+  let i0 = 0;
+  for (const m of meshes) {
+    const g = m.geometry;
+    const p = g.attributes.position;
+    const n = g.attributes.normal;
+    const l = g.attributes.uv1;
+    const name = (m.material as THREE.Material).name;
+    const d = descs[name];
+    const c = d.color ?? [0.5, 0.5, 0.5];
+    const t = [Math.sqrt(c[0]), Math.sqrt(c[1]), Math.sqrt(c[2]), d.rough ?? 0.6].map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255));
+    const metal = Math.round(Math.max(0, Math.min(1, d.metal ?? 0)) * 255);
+    const car = isCarPart(name) ? 255 : 0;
+    m.updateMatrixWorld(true);
+    nm.getNormalMatrix(m.matrixWorld);
+    for (let i = 0; i < p.count; i++) {
+      const k = v0 + i;
+      v.fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld);
+      pos[k * 3] = v.x;
+      pos[k * 3 + 1] = v.y;
+      pos[k * 3 + 2] = v.z;
+      v.fromBufferAttribute(n, i).applyMatrix3(nm).normalize();
+      nor[k * 4] = Math.round(v.x * 127);
+      nor[k * 4 + 1] = Math.round(v.y * 127);
+      nor[k * 4 + 2] = Math.round(v.z * 127);
+      if (l) {
+        uv1[k * 2] = Math.round(Math.max(0, Math.min(1, l.getX(i))) * 65535);
+        uv1[k * 2 + 1] = Math.round(Math.max(0, Math.min(1, l.getY(i))) * 65535);
+      }
+      tint[k * 4] = t[0];
+      tint[k * 4 + 1] = t[1];
+      tint[k * 4 + 2] = t[2];
+      tint[k * 4 + 3] = t[3];
+      extra[k * 4] = metal;
+      extra[k * 4 + 1] = car;
+    }
+    const idx = g.index;
+    const count = idx ? idx.count : p.count;
+    for (let i = 0; i < count; i++) index[i0 + i] = v0 + (idx ? idx.getX(i) : i);
+    v0 += p.count;
+    i0 += count;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 4, true));
+  geo.setAttribute('uv1', new THREE.BufferAttribute(uv1, 2, true));
+  geo.setAttribute('aTint', new THREE.BufferAttribute(tint, 4, true));
+  geo.setAttribute('aExtra', new THREE.BufferAttribute(extra, 4, true));
+  geo.setIndex(new THREE.BufferAttribute(index, 1));
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+  return geo;
+}
+
 export interface WorldOptions {
   /** 1 = pictures at full size; smaller on phones (0.5 = a quarter of the memory) */
   pictureScale?: number;
   /** how many pictures to fetch and unpack at once */
   parallel?: number;
+  /** phones: load the simplified copies of buildings, cars and trees where there are any */
+  lite?: boolean;
 }
 
 /** Load a packed world (public/assets/<set>/). */
@@ -233,12 +317,20 @@ export async function loadWorld(
         light.planar = { x0: chunk.tile_origin[0], z0: chunk.tile_origin[1], size: chunk.tile_size };
       }
     }
-    const data = await gltf.loadAsync(base + chunk.file);
+    const data = await gltf.loadAsync(base + ((options.lite && chunk.lite) || chunk.file));
     plainNumbers(data.scene);
+    data.scene.updateMatrixWorld(true);
+    const flats: THREE.Mesh[] = [];
     data.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       const name = (mesh.material as THREE.Material).name;
+      const d = descs[name];
+      // plain-coloured parts of buildings and cars are drawn together (see mergeFlats)
+      if (chunk.kind === 'struct' && light && d && d.kind === 'flat' && !d.diff && !d.alpha && !d.fade && mesh.geometry.attributes.normal) {
+        flats.push(mesh);
+        return;
+      }
       const mat = chunk.kind === 'far' ? farMaterial(name) : materials.get(name, light, { mode: 'vertex' });
       if (light) (mat.uniforms.uLmSunSize.value as THREE.Vector2).setScalar(chunk.res ?? 1024);
       mesh.material = mat;
@@ -246,6 +338,18 @@ export async function loadWorld(
       mesh.updateMatrix();
       if (mat.transparent) mesh.renderOrder = 2;
     });
+    if (flats.length) {
+      const mat = materials.get(FLAT_MIX, light, { mode: 'vertex' });
+      (mat.uniforms.uLmSunSize.value as THREE.Vector2).setScalar(chunk.res ?? 1024);
+      const all = new THREE.Mesh(mergeFlats(flats, descs), mat);
+      all.name = FLAT_MIX;
+      all.matrixAutoUpdate = false;
+      for (const m of flats) {
+        m.removeFromParent();
+        m.geometry.dispose();
+      }
+      data.scene.add(all);
+    }
     data.scene.name = chunk.name;
     group.add(data.scene);
     tick();
@@ -253,7 +357,7 @@ export async function loadWorld(
 
   const scatterGroups: ScatterGroup[] = [];
   const scatterJobs = scatter.map(async ([key, model]) => {
-    const data = await gltf.loadAsync(base + model.file);
+    const data = await gltf.loadAsync(base + ((options.lite && model.lite) || model.file));
     plainNumbers(data.scene);
     const count = model.matrices.length / 16;
     const plant = model.plant !== false;
