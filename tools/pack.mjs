@@ -45,7 +45,7 @@ async function packGlb(src, dst) {
     // materials are told apart by name only, so they must not be merged
     dedup({ propertyTypes: [PropertyType.ACCESSOR, PropertyType.MESH] }),
     prune({ propertyTypes: [PropertyType.ACCESSOR, PropertyType.BUFFER], keepAttributes: true, keepLeaves: true }),
-    meshopt({ encoder: MeshoptEncoder, level: 'medium', quantizePosition: 16, quantizeNormal: 10, quantizeTexcoord: 16, quantizeColor: 8 }),
+    meshopt({ encoder: MeshoptEncoder, level: 'high', quantizePosition: 14, quantizeNormal: 8, quantizeTexcoord: 14, quantizeColor: 8 }),
   );
   await gltfIO.write(dst, doc);
 }
@@ -58,9 +58,9 @@ async function convert(src, dst, { size, kind }) {
   const meta = await img.metadata();
   if (size && meta.width > size) img = img.resize(size, size, { fit: 'inside', kernel: 'lanczos3' });
   const opts =
-    kind === 'normal' ? { quality: 90, smartSubsample: true, effort: 5 }
-    : kind === 'data' ? { quality: 82, smartSubsample: true, effort: 5 }
-    : { quality: 84, effort: 5 };
+    kind === 'normal' ? { quality: 84, smartSubsample: true, effort: 5 }
+    : kind === 'data' ? { quality: 76, smartSubsample: true, effort: 5 }
+    : { quality: 80, effort: 5 };
   await img.webp(opts).toFile(dst);
   return true;
 }
@@ -85,7 +85,8 @@ async function main() {
       for (const [key, map, kind] of [['diff', 'Diffuse', 'color'], ['nor', 'nor_gl', 'normal'], ['arm', 'arm', 'data']]) {
         const src = path.join(dir, `${d.ph}_${map}_${res}.jpg`);
         const file = `${d.ph}_${key}.webp`;
-        if (await convert(src, path.join(TEX_OUT, file), { size, kind })) made++;
+        // the colour picture keeps its size; bump and roughness pictures get by with half of it
+        if (await convert(src, path.join(TEX_OUT, file), { size: kind === 'color' ? size : size / 2, kind })) made++;
         m[key] = `tex/${file}`;
       }
     } else if (d.kind === 'leaf') {
@@ -105,7 +106,7 @@ async function main() {
         if (!d[key]) continue;
         const src = d[key];
         const file = `${path.basename(src).replace(/\.[^.]+$/, '').replace(/_(1|2|4)k$/, '')}.webp`;
-        if (await convert(src, path.join(TEX_OUT, file), { size: 1024, kind })) made++;
+        if (await convert(src, path.join(TEX_OUT, file), { size: kind === 'color' ? 1024 : 512, kind })) made++;
         m[key] = `tex/${file}`;
       }
     }

@@ -590,5 +590,195 @@
     "pitch": -10
    }
   }
+ ],
+ "final": [
+  {
+   "name": "start",
+   "cat": {
+    "x": -3.4,
+    "z": 30.4,
+    "heading": 10
+   }
+  },
+  {
+   "name": "gate",
+   "cat": {
+    "x": -47.5,
+    "z": 0,
+    "heading": 270
+   }
+  },
+  {
+   "name": "carport",
+   "cat": {
+    "x": 37.5,
+    "z": -3,
+    "heading": 80
+   }
+  },
+  {
+   "name": "carport_in",
+   "cat": {
+    "x": 40.2,
+    "z": 7.6,
+    "heading": 60
+   }
+  },
+  {
+   "name": "kerb_car",
+   "cat": {
+    "x": -16.5,
+    "z": 18.6,
+    "heading": 255
+   }
+  },
+  {
+   "name": "racks",
+   "cat": {
+    "x": 29.5,
+    "z": -23.4,
+    "heading": 10
+   }
+  },
+  {
+   "name": "scooter",
+   "cat": {
+    "x": 7.2,
+    "z": 21.6,
+    "heading": 80
+   }
+  },
+  {
+   "name": "over_east",
+   "pose": {
+    "x": 25,
+    "y": 9,
+    "z": 8,
+    "heading": 70,
+    "pitch": -16
+   }
+  },
+  {
+   "name": "over_west",
+   "pose": {
+    "x": -30,
+    "y": 8,
+    "z": -4,
+    "heading": 265,
+    "pitch": -12
+   }
+  },
+  {
+   "name": "over_north",
+   "pose": {
+    "x": 0,
+    "y": 12,
+    "z": -10,
+    "heading": 0,
+    "pitch": -8
+   }
+  },
+  {
+   "name": "over_south",
+   "pose": {
+    "x": 0,
+    "y": 12,
+    "z": 10,
+    "heading": 180,
+    "pitch": -8
+   }
+  },
+  {
+   "name": "north_road",
+   "cat": {
+    "x": -14,
+    "z": -18,
+    "heading": 90
+   },
+   "sim": [
+    {
+     "move": 1,
+     "t": 1
+    }
+   ]
+  },
+  {
+   "name": "duchess",
+   "cat": {
+    "x": 40.4,
+    "z": -5.1,
+    "heading": 90
+   }
+  },
+  {
+   "name": "undercar",
+   "pose": {
+    "x": 42.15,
+    "y": 0.09,
+    "z": 5.6,
+    "heading": 0,
+    "pitch": 4
+   }
+  }
+ ],
+ "q": [
+  {
+   "name": "start",
+   "cat": {
+    "x": -3.4,
+    "z": 30.4,
+    "heading": 10
+   }
+  },
+  {
+   "name": "gate",
+   "cat": {
+    "x": -47.5,
+    "z": 0,
+    "heading": 270
+   }
+  },
+  {
+   "name": "carport",
+   "cat": {
+    "x": 37.5,
+    "z": -3,
+    "heading": 80
+   }
+  },
+  {
+   "name": "racks",
+   "cat": {
+    "x": 29.5,
+    "z": -23.4,
+    "heading": 10
+   }
+  },
+  {
+   "name": "scooter",
+   "cat": {
+    "x": 7.2,
+    "z": 21.6,
+    "heading": 80
+   }
+  },
+  {
+   "name": "over_east",
+   "pose": {
+    "x": 25,
+    "y": 9,
+    "z": 8,
+    "heading": 70,
+    "pitch": -16
+   }
+  },
+  {
+   "name": "duchess",
+   "cat": {
+    "x": 40.4,
+    "z": -5.1,
+    "heading": 90
+   }
+  }
  ]
 }

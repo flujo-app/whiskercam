@@ -242,7 +242,7 @@ void main() {
       float l = dot(textureLod(uTex, uv, 5.0).rgb, vec3(0.2126, 0.7152, 0.0722));
       float w = 1.0 - 0.55 * smoothstep(0.55, 1.0, uv.y);
       w *= 1.0 - 0.3 * abs(uv.x - 0.5) * 2.0;
-      sum += log(max(l, max(mean * 0.11, 1e-4))) * w;
+      sum += log(max(l, max(mean * 0.07, 1e-4))) * w;
     }
   }
   float now = exp(sum / wsum);

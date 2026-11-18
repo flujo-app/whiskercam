@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { plainNumbers } from './geometry';
 import { Materials, type LightRef, type MatDesc, setProbe } from './materials';
 
 export interface ChunkInfo {
@@ -221,6 +222,7 @@ export async function loadWorld(
       }
     }
     const data = await gltf.loadAsync(base + chunk.file);
+    plainNumbers(data.scene);
     data.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -240,6 +242,7 @@ export async function loadWorld(
   const scatterGroups: ScatterGroup[] = [];
   const scatterJobs = scatter.map(async ([key, model]) => {
     const data = await gltf.loadAsync(base + model.file);
+    plainNumbers(data.scene);
     const count = model.matrices.length / 16;
     const plant = model.plant !== false;
     // bucket the copies into map squares: squares outside the picture are skipped, and so are far-away plants
