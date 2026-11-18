@@ -1,11 +1,12 @@
 // Click through the whole game like a player would, on a desktop-sized and a phone-sized screen.
 //
-//   node tools/uitest.mjs [set] [--dist]
+//   node tools/uitest.mjs [set] [--dist] [--url https://...]
 //
 // Title screen -> name and coat -> settings -> start -> run about -> pause -> carry on -> battery runs out ->
 // "clip posted" screen -> run it back -> back to menu. Then the same start on a phone with touch controls.
 // Pictures land in build/uitest/. Exits with code 1 when a step fails or the browser reports an error.
-// With --dist it tests the built game in dist/ (what gets published) instead of the dev server.
+// With --dist it tests the built game in dist/ (what gets published) instead of the dev server,
+// with --url a copy that is already online.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,13 +15,16 @@ import { createServer, preview } from 'vite';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
-const set = args.find((a) => !a.startsWith('--')) ?? 'estate';
+const set = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--url') ?? 'estate';
 const outDir = path.join(ROOT, 'build', 'uitest');
 await fs.mkdir(outDir, { recursive: true });
 
 let server;
 let url;
-if (args.includes('--dist')) {
+const urlAt = args.indexOf('--url');
+if (urlAt >= 0) {
+  url = args[urlAt + 1]; // an already published copy, e.g. the live page
+} else if (args.includes('--dist')) {
   server = await preview({ root: ROOT, logLevel: 'error', preview: { port: 5198, strictPort: false } });
   url = server.resolvedUrls.local[0];
 } else {
@@ -251,7 +255,7 @@ const ready = async (page) => {
 }
 
 await browser.close();
-await (server.close?.() ?? server.httpServer?.close());
+if (server) await (server.close?.() ?? server.httpServer?.close());
 const unique = [...new Set(problems)];
 if (unique.length) console.log('browser messages:\n' + unique.slice(0, 20).join('\n'));
 console.log(failures.length || unique.length ? `\n${failures.length} step(s) failed, ${unique.length} browser message(s)` : '\nall steps passed, no browser errors');

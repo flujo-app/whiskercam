@@ -1,3 +1,4 @@
+import { plainNumbers } from '../engine/geometry';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -46,6 +47,7 @@ export class Props {
     await Promise.all(
       Object.entries(info.models).map(async ([key, m]) => {
         const gltf = await loader.loadAsync(world.base + m.file);
+        plainNumbers(gltf.scene);
         gltf.scene.updateMatrixWorld(true);
         models.set(key, gltf.scene);
       }),

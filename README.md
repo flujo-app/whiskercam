@@ -4,7 +4,7 @@ A day on the estate, filmed from under a cat's chin. A browser game.
 
 **Play it:** https://flujo-app.github.io/whiskercam/
 
-![A frame from the game: the cat's chin and whiskers at the top, its paws and shadow on the road](docs/frame.jpg)
+![Three frames from the game: sprinting with the paws in view, catching the brother, the cat's own shadow on the road](docs/frame.jpg)
 
 You are a cat with a small camera on your collar. The battery lasts three minutes. Whatever you
 do in that time ends up in the clip, and the clip gets views:
