@@ -28,6 +28,7 @@ blender -b --factory-startup -P pipeline/blender/run.py -- stage <module>   look
 node tools/shots.mjs estate                               test pictures from a hidden browser -> build/shots/
 node tools/playtest.mjs estate                            a bot plays a whole round -> build/playtest/
 node tools/uitest.mjs estate                              clicks through every screen, desktop and phone size
+node tools/bench.mjs estate                               how long a frame really takes, at several spots
 node tools/credits.mjs                                    rewrite CREDITS.md from what is used
 node tools/deploy.mjs                                     build and publish the live page
 ```

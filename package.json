@@ -14,6 +14,7 @@
     "fetch": "python -I pipeline/fetch_polyhaven.py",
     "playtest": "node tools/playtest.mjs estate",
     "uitest": "node tools/uitest.mjs estate",
+    "bench": "node tools/bench.mjs estate",
     "deploy": "node tools/deploy.mjs"
   },
   "dependencies": {
