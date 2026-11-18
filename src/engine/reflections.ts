@@ -181,6 +181,11 @@ export class Reflections {
     this.owed.sort((a, b) => d(a) - d(b));
   }
 
+  /** how many all-round pictures are still to be taken */
+  get pending(): number {
+    return this.owed.length;
+  }
+
   /** Take up to `views` of the pictures that are still owed (a picture has six). Returns how many views are left. */
   work(views: number): number {
     while (views > 0 && this.owed.length) {

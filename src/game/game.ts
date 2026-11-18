@@ -3,6 +3,7 @@ import { Audio } from '../engine/audio';
 import { Grass } from '../engine/grass';
 import { Input, type Controls } from '../engine/input';
 import { LensRig } from '../engine/lens';
+import { Pacer } from '../engine/pacer';
 import { Physics } from '../engine/physics';
 import { Post } from '../engine/post';
 import { Recorder } from '../engine/recorder';
@@ -41,6 +42,17 @@ export interface GameOptions {
 
 const STEP = 1 / 60;
 
+/**
+ * Smaller pictures for devices that cannot keep up: how finely the views are drawn, and whether edges get
+ * their extra samples. A step down is only ever kept when the game demonstrably runs faster for it (see
+ * engine/pacer.ts).
+ */
+const SIZES = [
+  { scale: 1, smooth: true },
+  { scale: 0.85, smooth: true },
+  { scale: 0.72, smooth: false },
+] as const;
+
 export class Game {
   readonly scene = new THREE.Scene();
   readonly rig = new LensRig();
@@ -67,11 +79,11 @@ export class Game {
   paused = false;
   /** most picture lines drawn, whatever the screen (set by the quality setting) */
   maxLines = 1600;
-  /** 0.55 .. 1: lowered automatically when the graphics card cannot keep up */
-  private governor = 1;
-  private slowFrames = 0;
-  private fastFrames = 0;
-  /** even the smallest picture came out too slow: the grass, half the fur and the far plants are left out as well */
+  /** decides which of SIZES is in use, and whether grass, fur and far plants are thinned out */
+  readonly pacer = new Pacer();
+  /** samples per pixel for edge smoothing at full size */
+  private readonly msaa: number;
+  /** the grass, half the fur and the far plants are left out (only where that makes the game faster) */
   thrifty = false;
   readonly recorder: Recorder;
   readonly audio = new Audio(`${import.meta.env.BASE_URL}audio/`);
@@ -90,8 +102,10 @@ export class Game {
   private constructor(readonly renderer: THREE.WebGLRenderer, readonly canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     this.scene.add(this.rig.rig);
     this.post = new Post(renderer, this.rig);
-    // phones: no extra samples per pixel (memory), the smoothing over time still runs
-    this.post.msaa = opts.msaa ?? (opts.lean ? 0 : 4);
+    // phones: no extra samples per pixel (they cost four times the memory for the two views), the smoothing
+    // over time does the edges there
+    this.msaa = opts.msaa ?? (opts.lean ? 0 : 4);
+    this.post.msaa = this.msaa;
     this.post.lean = !!opts.lean;
     this.input = new Input(canvas);
     this.recorder = new Recorder(canvas, !!opts.lean);
@@ -235,7 +249,8 @@ export class Game {
     if ((Math.abs(q - this.opts.quality) > 1e-3 || lines !== this.maxLines) && !this.opts.size) {
       this.opts.quality = q;
       this.maxLines = lines;
-      this.governor = 1;
+      // another picture setting: start from its full size and find out afresh what this device manages
+      this.pacer.restart();
       this.layout();
     }
     this.input.mouseSensitivity = 0.11 * s.sensitivity;
@@ -299,15 +314,32 @@ export class Game {
       h = window.innerHeight;
       w = Math.min(window.innerWidth, Math.round((h * 9) / 16));
       // a phone clip does not need more than this many lines; big screens just show it larger
-      dpr = Math.min(dpr, ((this.opts.lean ? 0.85 : 1) * this.maxLines) / h);
+      dpr = Math.min(dpr, ((this.opts.lean ? 0.9 : 1) * this.maxLines) / h);
     }
     const pw = Math.max(2, Math.round(w * dpr));
     const ph = Math.max(2, Math.round(h * dpr));
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.renderer.setSize(pw, ph, false);
-    // (the two views behind the fisheye picture hold twice its pixels at full quality; a phone draws them smaller)
-    this.post.setSize(pw, ph, this.opts.quality * this.governor * (this.opts.lean ? 0.75 : 1));
+    // (the two views behind the fisheye picture hold twice its pixels at full quality; a phone draws them a
+    // little smaller, which on its small screen still leaves every point of the picture its own point of a view)
+    const size = SIZES[this.pacer.size];
+    this.post.msaa = size.smooth ? this.msaa : 0;
+    this.post.setSize(pw, ph, this.opts.quality * size.scale * (this.opts.lean ? 0.8 : 1));
+  }
+
+  /** One frame took `dt` seconds: let the pacer judge, and follow what it decides. */
+  private pace(dt: number): void {
+    if (this.paused || this.opts.size || document.hidden) return;
+    const size = this.pacer.size;
+    const busy = this.world.pictures.owed > 0 || (this.reflections?.pending ?? 0) > 0;
+    if (!this.pacer.frame(dt, busy)) return;
+    if (this.pacer.size !== size) this.layout();
+    if (this.pacer.thrifty !== this.thrifty) {
+      this.thrifty = this.pacer.thrifty;
+      if (this.grass) this.grass.mesh.visible = !this.thrifty;
+      if (this.catModel) this.catModel.thrift = this.thrifty ? 0.5 : 1;
+    }
   }
 
   private reflectLevel = 0;
@@ -469,25 +501,7 @@ export class Game {
       if (!this.running) return;
       const dt = Math.min(0.1, (now - this.last) / 1000);
       this.last = now;
-      // keep it smooth: if frames keep coming late, draw fewer pixels; if there is room, go back up
-      if (!this.paused && dt > 0.021) this.slowFrames++;
-      else if (dt < 0.0125) this.fastFrames++;
-      if (this.slowFrames > 45 && this.governor > 0.56) {
-        this.governor = Math.max(0.55, this.governor - 0.12);
-        this.slowFrames = this.fastFrames = 0;
-        this.layout();
-      } else if (this.slowFrames > 150 && !this.thrifty) {
-        // fewer pixels did not help: this device is held back by the amount of geometry
-        this.thrifty = true;
-        if (this.grass) this.grass.mesh.visible = false;
-        if (this.catModel) this.catModel.thrift = 0.5;
-        this.slowFrames = this.fastFrames = 0;
-      } else if (this.fastFrames > 900 && this.governor < 1) {
-        this.governor = Math.min(1, this.governor + 0.12);
-        this.slowFrames = this.fastFrames = 0;
-        this.layout();
-      }
-      if (this.slowFrames + this.fastFrames > 1200) this.slowFrames = this.fastFrames = 0;
+      this.pace(dt);
       this.acc += dt;
       const c = this.input.poll();
       const pausePressed = c.pause;

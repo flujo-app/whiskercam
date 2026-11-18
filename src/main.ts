@@ -6,7 +6,7 @@ import { Bot } from './game/bot';
 import { restLook, type CatLook, type Coat } from './game/cats';
 import type { FurCat } from './game/furcat';
 import { Game } from './game/game';
-import { defaultMotion, loadSettings, QUALITY_SCALE, saveSettings } from './game/settings';
+import { loadSettings, QUALITY_SCALE, saveSettings } from './game/settings';
 import { Hud } from './ui/hud';
 
 const params = new URLSearchParams(location.search);
@@ -41,8 +41,6 @@ async function start(): Promise<void> {
   const settings = loadSettings();
   const manual = params.has('manual');
   const touchDevice = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-  if (touchDevice && !localStorage.getItem('whiskercam.settings.v1')) settings.quality = 1;
-  if (!settings.motionChosen) settings.motion = defaultMotion(touchDevice);
   const size = params.get('size')?.split('x').map(Number);
 
   const game = await Game.create(canvas, {

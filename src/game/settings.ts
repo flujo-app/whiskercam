@@ -17,6 +17,8 @@ export interface Settings {
   record: boolean;
   best: number;
   runs: number;
+  /** which set of defaults these were saved under (see `loadSettings`) */
+  version: number;
 }
 
 const KEY = 'whiskercam.settings.v1';
@@ -26,19 +28,32 @@ export const defaults: Settings = {
   coat: 'ginger',
   quality: 2,
   volume: 0.8,
-  sensitivity: 1,
-  motion: 0.5,
+  sensitivity: 2,
+  motion: 0,
   motionChosen: false,
   comments: true,
   record: true,
   best: 0,
   runs: 0,
+  version: 2,
 };
 
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...defaults, ...(JSON.parse(raw) as Partial<Settings>) };
+    if (raw) {
+      const stored = JSON.parse(raw) as Partial<Settings>;
+      if ((stored.version ?? 1) < 2) {
+        // 1.2.1 changed what a new player starts with: the sharpest picture (the lower steps used to be far
+        // too coarse, and phones started on one of them), the steadiest camera, the quickest turning.
+        // Whoever played before gets the same start, once; a camera shake they chose themselves is kept.
+        stored.quality = defaults.quality;
+        if (stored.sensitivity === undefined || stored.sensitivity === 1) stored.sensitivity = defaults.sensitivity;
+        if (!stored.motionChosen) stored.motion = defaults.motion;
+        stored.version = 2;
+      }
+      return { ...defaults, ...stored };
+    }
   } catch {
     // private window or blocked storage: carry on with defaults
   }
@@ -54,15 +69,10 @@ export function saveSettings(s: Settings): void {
 }
 
 /**
- * How much camera shake a player gets who has not chosen: a steady picture on a big screen, steadier still on a
- * phone (small screen, held in the hand), and nearly none where the device asks for reduced motion.
+ * How finely the two views behind the fisheye picture are drawn at each picture setting ("Faster",
+ * "Balanced", "Sharpest"). None of them is coarse: the lowest still draws about as many points as the
+ * screen shows.
  */
-export function defaultMotion(touch: boolean): number {
-  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return 0;
-  return touch ? 0.3 : 0.5;
-}
-
-/** Render scale for each quality step. */
-export const QUALITY_SCALE = [0.7, 0.9, 1.25];
+export const QUALITY_SCALE = [0.85, 1.0, 1.25];
 /** Most picture lines drawn for each quality step. */
-export const QUALITY_LINES = [960, 1280, 1600];
+export const QUALITY_LINES = [1200, 1440, 1600];
