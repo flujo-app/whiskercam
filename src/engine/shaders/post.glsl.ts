@@ -339,10 +339,15 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-// filmic shoulder: bright things roll off to white instead of clipping hard
+// The camera's tone curve.
+// Contrast is put on the light itself, around middle grey, so shade gets deeper without ever being cut
+// off to black: a phone camera keeps detail in the shade, and a shadow on sunlit ground is a darker
+// version of that ground, not a hole. Bright things roll off to white over a long shoulder.
 vec3 curve(vec3 x) {
-  const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+  vec3 t = 0.2484 * pow(max(x, 0.0) / 0.18, vec3(uContrast));
+  vec3 u = max(t - 0.25, 0.0) / 0.75;
+  vec3 high = 0.25 + 0.75 * u * (1.0 + u / 36.0) / (1.0 + u);
+  return clamp(mix(t, high, step(0.25, t)), 0.0, 1.0);
 }
 
 void main() {
@@ -375,7 +380,7 @@ void main() {
       vec2 axis = vec2(0.5) - uSunUv;
       vec2 g1 = (vUv - (vec2(0.5) + axis * 0.45)) * aspect;
       vec2 g2 = (vUv - (vec2(0.5) + axis * 0.95)) * aspect;
-      vec3 ghosts = vec3(0.35, 0.9, 0.5) * smoothstep(0.045, 0.035, length(g1)) * 0.035 + vec3(0.9, 0.5, 0.3) * smoothstep(0.085, 0.07, length(g2)) * 0.02;
+      vec3 ghosts = vec3(0.35, 0.9, 0.5) * smoothstep(0.045, 0.035, length(g1)) * 0.02 + vec3(0.9, 0.5, 0.3) * smoothstep(0.085, 0.07, length(g2)) * 0.012;
       c += (vec3(1.0, 0.95, 0.85) * (star + veil) + ghosts) * seen * uFlare;
     }
   }
@@ -387,15 +392,15 @@ void main() {
 
   c = curve(c);
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(vec3(l), c, uSaturation);
-  c = clamp((c - 0.5) * uContrast + 0.5, 0.0, 1.0);
+  c = clamp(mix(vec3(l), c, uSaturation), 0.0, 1.0);
+  c = pow(c, vec3(1.0 / 2.2));
 
-  // sensor noise: more in the dark parts, different every frame
+  // sensor noise: a little more in the dark parts, different every frame (added to the finished picture,
+  // so it stays fine grain in the shade instead of turning into speckles)
   float n = hash12(gl_FragCoord.xy + fract(uTime) * 311.7) - 0.5;
-  c += n * uGrain * (1.0 - 0.6 * l);
+  c += n * uGrain * (1.15 - 0.6 * sqrt(l));
 
-  c = pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
-  gl_FragColor = vec4(c, 1.0);
+  gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }
 `;
 

@@ -40,6 +40,7 @@ export class Physics {
   private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   private readonly balls = new Map<number, RAPIER.Ball>();
   private readonly hitOut: RayHit = { toi: 0, nx: 0, ny: 0, nz: 0, surface: 'plaster' };
+  private readonly nearOut = { x: 0, y: 0, z: 0, dist: 0 };
   private readonly at = { x: 0, y: 0, z: 0 };
   private readonly noTurn = { x: 0, y: 0, z: 0, w: 1 };
 
@@ -123,6 +124,25 @@ export class Physics {
     if (!hit) return null;
     const surface = this.surfaceOf.get(hit.collider.handle) ?? 'asphalt';
     return { y: yFrom - hit.timeOfImpact, surface, nx: hit.normal.x, ny: hit.normal.y, nz: hit.normal.z };
+  }
+
+  /**
+   * The spot on any solid surface that is nearest to (x, y, z), in whatever direction, and how far away it
+   * is. (The returned object is reused: read it before asking again.)
+   */
+  nearestSurface(x: number, y: number, z: number): { x: number; y: number; z: number; dist: number } | null {
+    const p = this.ray.origin;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    const hit = this.world.projectPoint(p, false, undefined, groups(G.NPC, G.WORLD | G.PROP));
+    if (!hit) return null;
+    const o = this.nearOut;
+    o.x = hit.point.x;
+    o.y = hit.point.y;
+    o.z = hit.point.z;
+    o.dist = Math.hypot(x - o.x, y - o.y, z - o.z);
+    return o;
   }
 
   /** Distance to the first solid thing along a ray, or `max` when nothing is hit. */

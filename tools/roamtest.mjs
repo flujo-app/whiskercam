@@ -269,35 +269,59 @@ const report = await page.evaluate(({ only, extra }) => {
     }
   }
   // ---- trees: walk at the trunk, climb to the fork, sit there, jump off and land
+  // (trunks lean, and nobody walks at one dead centre: each tree is tried straight on, a little to
+  // either side, and with a running jump at the trunk)
   if (want('tree')) {
     for (const [kind, x, z, perch, thick] of pois) {
       if (kind !== 'tree') continue;
       const away = (thick || 0.1) + 1.1;
-      let done = false;
+      let sides = 0;
       for (const a of [0, 90, 180, 270]) {
-        if (done) break;
+        if (sides >= 2) break;
         const dx = Math.sin(a * DEG);
         const dz = -Math.cos(a * DEG);
         const sx = x - dx * away;
         const sz = z - dz * away;
         if (!put(sx, sz, a) || !openLine(sx, sz, dx, dz, 0.9, 0.3)) continue;
-        done = true;
-        const y0 = p.y;
-        let clung = false;
-        const up = run({ move: 1 }, perch / 1.5 + 3.5, (i, held) => {
-          if (p.climbing) clung = true;
-          // once it sits in the fork, stay there
-          if (clung && !p.climbing && !p.mantling && !p.airborne && p.y - y0 > perch - 0.25) held.move = 0;
-        });
-        closest(up, `tree at ${x.toFixed(1)}, ${z.toFixed(1)}`);
-        const top = p.y - y0;
-        note('tree', clung && top > perch - 0.25 && !p.climbing && up.near > 0.03, `tree at ${x.toFixed(1)}, ${z.toFixed(1)}: ${clung ? 'climbed' : 'never got a grip'}, ended ${top.toFixed(2)} m up (fork at ${perch} m), lens came within ${(up.near * 100).toFixed(1)} cm`);
-        if (top > perch - 0.25) {
-          const off = run({ move: 1, sprint: true, jump: true, jumpHeld: true }, 2.5);
-          note('tree', p.y - y0 < 0.4 && !p.airborne, `tree at ${x.toFixed(1)}, ${z.toFixed(1)}: after jumping off it is ${(p.y - y0).toFixed(2)} m up`);
+        sides++;
+        const where = `tree at ${x.toFixed(1)}, ${z.toFixed(1)} from ${a}`;
+        for (const [how, off, c] of [['walking', 0, { move: 1 }], ['walking, a bit left', -0.05, { move: 1 }], ['walking, a bit right', 0.05, { move: 1 }], ['jumping at it', 0, { move: 1, sprint: true }]]) {
+          // `off` shifts the whole approach sideways; the jump gets a run-up
+          const jumping = how === 'jumping at it';
+          const back = jumping ? 1.6 : 0;
+          if (jumping && !openLine(sx - dx * back, sz - dz * back, dx, dz, back + 0.9, 0.3)) continue;
+          if (!put(sx - dx * back - dz * off, sz - dz * back + dx * off, a)) continue;
+          const y0 = p.y;
+          let clung = false;
+          let jumped = -1;
+          const up = run(c, perch / 1.5 + 4, (i, held) => {
+            if (jumping && jumped < 0 && Math.hypot(p.x - x, p.z - z) < 1.15 + (thick || 0.1)) {
+              jumped = i;
+              held.jump = held.jumpHeld = true;
+            }
+            if (jumped >= 0 && i === jumped + 12) held.jumpHeld = false;
+            // (a high jump may catch the fork itself and scramble straight up: that counts too)
+            if (p.climbing || p.mantling) {
+              clung = true;
+              held.sprint = false;
+            }
+            // up in the fork the cat pauses for a moment: time to let go of the stick
+            if (clung && !p.climbing && !p.mantling && !p.airborne && p.y - y0 > perch - 0.25) held.move = 0;
+          });
+          closest(up, where);
+          const top = p.y - y0;
+          note('tree', clung && top > perch - 0.25 && !p.climbing && up.near > 0.03, `${where}, ${how}: ${clung ? 'got a grip' : 'never got a grip'}, ended ${top.toFixed(2)} m up (fork at ${perch} m), lens came within ${(up.near * 100).toFixed(1)} cm`);
+          if (top > perch - 0.25 && how === 'walking') {
+            // jump off, and stand still once down (or it runs on into the next fence and climbs that)
+            const off2 = run({ move: 1, sprint: true, jump: true, jumpHeld: true }, 2.5, (i, held) => {
+              if (i > 10 && !p.airborne) held.move = 0;
+            });
+            closest(off2, where);
+            note('tree', p.y - y0 < 0.4 && !p.airborne, `${where}: after jumping off it is ${(p.y - y0).toFixed(2)} m up`);
+          }
         }
       }
-      if (!done) note('tree', false, `tree at ${x.toFixed(1)}, ${z.toFixed(1)}: no open ground next to the trunk to start from`);
+      if (!sides) note('tree', false, `tree at ${x.toFixed(1)}, ${z.toFixed(1)}: no open ground next to the trunk to start from`);
     }
   }
 
@@ -354,29 +378,40 @@ const report = await page.evaluate(({ only, extra }) => {
     const seen = (ox, oy, oz, dx, dz, max) => {
       rc.set(new T.Vector3(ox, oy, oz), new T.Vector3(dx, 0, dz));
       rc.far = max;
-      const hits = rc.intersectObjects(solids, true);
+      // hedges and leaves are drawn but deliberately not solid: the cat pushes through them
+      const hits = rc.intersectObjects(solids, true).filter((h) => !/hedge|leaf|leaves|ivy|grass/.test(h.object.material?.name ?? ''));
+      seenWhat = hits.length ? hits[0].object.material?.name || '?' : '';
       return hits.length ? hits[0].distance : max;
     };
+    let seenWhat = '';
     const probe = (label, ox, oy, oz, dx, dz) => {
       const solid = ph.rayDistance(ox, oy, oz, dx, 0, dz, 2.5);
       const drawn = seen(ox, oy, oz, dx, dz, 2.5);
       if (drawn >= 2.5 && solid >= 2.5) return;
       const proud = solid - drawn; // how far the drawn surface stands in front of the solid one
-      note('skin', proud < 0.065, `${label}: the drawn surface is ${(proud * 100).toFixed(1)} cm in front of the solid one`);
+      note('skin', proud < 0.065, `${label}: the drawn surface (${seenWhat}) is ${(proud * 100).toFixed(1)} cm in front of the solid one`);
     };
     for (const [kind, x, z, nx, nz] of pois) {
       const gr = ph.groundBelow(x + nx * 1.6, 3, z + nz * 1.6, 6);
       const y0 = gr ? gr.y : 0;
       if (kind === 'car') {
         for (const [name, ax, az, far] of [['nose', nx, nz, 3.4], ['tail', -nx, -nz, 3.6], ['side', -nz, nx, 2.2], ['other side', nz, -nx, 2.2]]) {
-          for (const h of [0.1, 0.35, 0.6, 0.9]) {
-            for (const off of [-0.5, 0, 0.5]) {
-              const ox = x + ax * far - az * off;
-              const oz = z + az * far + ax * off;
-              const g2 = ph.groundBelow(ox, 3, oz, 6);
-              if (!g2 || g2.y > 0.3) continue;
-              probe(`car at ${x.toFixed(1)}, ${z.toFixed(1)} ${name} at ${h} m`, ox, g2.y + h, oz, -ax, -az);
-            }
+          for (const off of [-0.5, 0, 0.5]) {
+            // look from close by, standing on the same ground as the car (not from a pavement above it)
+            const fx = x + ax * far - az * off;
+            const fz = z + az * far + ax * off;
+            const g1 = ph.groundBelow(fx, 3, fz, 6);
+            if (!g1 || g1.y > 0.3) continue;
+            const reach = ph.rayDistance(fx, g1.y + 0.5, fz, -ax, 0, -az, far);
+            if (reach >= far) continue;
+            const ox = fx - ax * Math.max(0, reach - 0.35);
+            const oz = fz - az * Math.max(0, reach - 0.35);
+            const g2 = ph.groundBelow(ox, g1.y + 0.5, oz, 1.2);
+            if (!g2 || g2.ny < 0.9) continue;
+            // standing on a kerb that runs right behind the car? Then this is not where a cat goes under it
+            const under = ph.groundBelow(ox - ax * 0.6, g2.y + 0.1, oz - az * 0.6, 0.5);
+            if (under && Math.abs(under.y - g2.y) > 0.03) continue;
+            for (const h of [0.1, 0.35, 0.6, 0.9]) probe(`car at ${x.toFixed(1)}, ${z.toFixed(1)} ${name} at ${h} m`, ox, g2.y + h, oz, -ax, -az);
           }
         }
       } else if (kind === 'pipe') {
