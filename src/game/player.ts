@@ -13,14 +13,15 @@ export const SPEED = { walk: 1.3, trot: 3.3, run: 7.6, back: 0.9, crouch: 1.5, h
 
 /** How the cat jumps and climbs. Heights in metres, times in seconds. */
 export const JUMP = {
-  /** take-off speed of a pounce, the leap of a cat that is on the move: low (about 0.43 m), long and quick */
-  pounce: 4.5,
-  /** take-off speed from a standstill, when the button is held: about 0.85 m straight up */
-  speed: 6.4,
-  /** the most it puts into a leap, and only when it sees something to land on: about 1.6 m (a van roof) */
+  /** take-off speed of a leap with the button held: about 0.9 m up */
+  speed: 6.6,
+  /** letting go of the button early drops the upward speed to this: a pounce of about half a metre */
+  cutTo: 3.4,
+  /**
+   * the most it puts into a leap, and only at something it can land on: about 1.6 m, which brings the top of
+   * anything up to 2 m within reach of the front paws
+   */
   most: 8.7,
-  /** letting go of the button early drops the upward speed to this: a short hop */
-  cutTo: 2.2,
   /** seconds the cat gathers itself before the paws leave the ground */
   squat: 0.05,
   /** a jump still works this long after running off an edge ... */
@@ -190,6 +191,7 @@ export class Player {
     this.climbing = false;
     this.jumping = false;
     this.jumpBuffer = 0;
+    this.aimed = null;
     this.airPitch = 0;
     this.perchHold = 0;
     this.brace = null;
@@ -282,7 +284,10 @@ export class Player {
     const slowing = Math.abs(target) < Math.abs(this.speed);
     const accel = (slowing ? 16 : 10) * (body.grounded ? 1 : slowing && c.move > 0.3 ? 0.12 : 0.45);
     const dv = target - this.speed;
-    this.speed += clamp(dv, -accel * dt, accel * dt);
+    if (this.aimed !== null && (body.grounded || c.move < 0.3 || k < 0.5)) this.aimed = null;
+    // (a leap aimed at something keeps exactly the pace it was aimed with)
+    if (this.aimed !== null) this.speed = this.aimed;
+    else this.speed += clamp(dv, -accel * dt, accel * dt);
 
     const h = this.heading * DEG;
     const fx = Math.sin(h);
@@ -303,6 +308,12 @@ export class Player {
       this.squat = JUMP.squat;
       this.jumpBuffer = 0;
       this.landVel -= 0.8;
+      // (unless it is about to run into the thing it means to jump onto: then it goes at once, or a fast cat
+      // would be under the car before its paws had left the ground)
+      if (c.move > 0.1 && this.speed > 2 && this.perchAhead(fx, fz, this.speed * JUMP.squat + 0.4)?.wood === false) {
+        this.squat = 0;
+        this.leap(fx, fz, c.move);
+      }
     }
     if (this.jumping) {
       this.jumpAge += dt;
@@ -345,7 +356,8 @@ export class Player {
     if (k > 0.5 && this.speed > 0.3 && c.move > 0.1) {
       if (!body.grounded) {
         // in the air: catch an edge that is within reach of the front paws, otherwise bounce off
-        if (body.vy < 4.5 && this.tryMantle(fx, fz)) {
+        // (a leap aimed at this very thing grabs it on the way up as well)
+        if ((body.vy < 4.5 || this.aimed !== null) && this.tryMantle(fx, fz)) {
           this.updateCamera(dt, Math.abs(this.speed));
           return;
         }
@@ -354,7 +366,8 @@ export class Player {
           this.updateCamera(dt, 0);
           return;
         }
-        if (stopped && !this.bumped && this.speed > 2) {
+        // (not while a leap aimed at this thing is still on its way up: the paws are about to find the edge)
+        if (stopped && !this.bumped && this.speed > 2 && !(this.aimed !== null && body.vy > -1)) {
           this.bumped = true;
           const force = clamp(this.speed / SPEED.run, 0.25, 1);
           this.shake = Math.max(this.shake, 0.2 + 0.3 * force);
@@ -450,35 +463,103 @@ export class Player {
   }
 
   /**
-   * The jump the player asked for. A cat on the move pounces: low, long and fast. From a standstill it jumps
-   * up. And when there is something ahead that it could land on, it puts in exactly what that takes.
+   * The jump the player asked for.
+   *
+   * A cat does not jump "0.9 metres": it looks at where it wants to be and puts in what that takes. So when
+   * there is something ahead it could land on (a bonnet, a wall, a window sill, a van roof) the leap is aimed
+   * at it: just high enough, and at the pace that brings the cat there as the paws come level with the top.
+   * With nothing to land on it is a pounce: forwards, half a metre up on a tap, nearly a metre when held.
    */
   private leap(fx: number, fz: number, move: number): void {
     const pace = clamp(Math.abs(this.speed) / SPEED.trot, 0, 1);
-    let up = lerp(JUMP.speed, JUMP.pounce, pace);
     if (move > 0.3) {
       // the push of the hind legs goes forwards too
       this.speed = Math.min(SPEED.run + 0.6, Math.max(this.speed + 1.4 * pace, lerp(2.4, 4.6, pace)));
     }
-    let sure = false;
+    this.aimed = null;
     if (move > 0.1 && this.speed > 0) {
-      const rise = this.perchAhead(fx, fz, clamp(this.speed * 0.45 + 0.2, 0.7, 3.2));
-      if (rise > 0) {
-        const need = Math.sqrt(2 * GRAVITY.rise * Math.max(0.05, rise - JUMP.reach + 0.14)) * 1.03;
-        if (need <= JUMP.most && need > up) {
-          up = need;
-          sure = true;
-        }
+      const aim = this.aimLeap(fx, fz);
+      if (aim === 'wood') {
+        // a trunk or a fence: a low, fast leap that gets the claws to it before the cat is on its way down
+        this.takeOff(lerp(JUMP.speed, 4.6, pace), false);
+        return;
+      }
+      if (aim) {
+        this.speed = aim.speed;
+        this.takeOff(aim.up, true);
+        this.aimed = aim.speed;
+        return;
       }
     }
-    this.takeOff(up, sure);
+    this.takeOff(JUMP.speed, false);
   }
 
   /**
-   * How high above the paws is the top of the first thing in the way, within `dist` metres, if the cat could
-   * stand on it? 0 when the way is clear, or when what is there is no place to land (a house wall, a lamp post).
+   * Work out a leap onto the first thing ahead that the cat could stand on: how hard to push off and how fast
+   * to go. Null when there is nothing in range, or nothing it could reach.
+   *
+   * Low and deep things (a bonnet, a landing) it clears, coming down on top. Higher things, and narrow ones
+   * such as the top of a wall, it reaches with the front paws and scrambles up; that also stops it sailing
+   * over a wall top and off the far side.
    */
-  private perchAhead(fx: number, fz: number, dist: number): number {
+  private aimLeap(fx: number, fz: number): { up: number; speed: number } | 'wood' | null {
+    const body = this.body;
+    const perch = this.perchAhead(fx, fz, clamp(1.0 + this.speed * 0.6, 1.8, 5.2));
+    if (!perch) return null;
+    // wood is for the claws: the cat leaps at it and climbs
+    if (perch.wood) return perch.dist < this.speed * 0.45 + 0.6 ? 'wood' : null;
+    const { rise, narrow } = perch;
+    // what the body covers before its front is at the face of the thing
+    const gap = Math.max(0, perch.dist - body.radius - 0.02);
+    const fastest = Math.min(SPEED.run + 0.6, Math.max(this.speed, 2.4) * 1.15 + 0.4);
+    const slowest = Math.max(0.7, this.speed * 0.4);
+    const dt = 1 / 60;
+    for (const clear of [true, false]) {
+      if (clear && (narrow || rise > 1.0)) continue;
+      // paw height wanted when the front of the body gets to the face
+      const want = clear ? rise + 0.07 : rise - JUMP.reach + 0.12;
+      const least = clear ? rise + 0.15 : Math.max(0.1, rise - JUMP.reach + 0.2);
+      for (let up = Math.max(3.0, Math.sqrt(2 * GRAVITY.rise * least) * 0.9), done = false; !done; up += 0.25) {
+        // (the last one tried is the hardest push-off there is)
+        if (up >= JUMP.most) {
+          up = JUMP.most;
+          done = true;
+        }
+        // the flight of this push-off, step by step (the same sums the body does)
+        let vy = up;
+        let y = 0;
+        let top = 0;
+        let topAt = 0;
+        let last = -1;
+        for (let i = 1; i < 110 && y > -0.3; i++) {
+          const g = vy > GRAVITY.hangBand ? GRAVITY.rise : vy > -GRAVITY.hangBand ? GRAVITY.hang : GRAVITY.fall;
+          vy = Math.max(-GRAVITY.maxFall, vy - g * dt);
+          y += vy * dt;
+          if (y > top) {
+            top = y;
+            topAt = i * dt;
+          }
+          if (y >= want) last = i * dt;
+        }
+        if (top < least || last < 0) continue;
+        // a narrow top is caught from below; any higher and the cat would be over it and gone
+        if (!clear && narrow && top > rise - 0.05) break;
+        // get there as the paws pass their highest point (clearing: a touch later, to come down just past the edge)
+        const when = clear ? (topAt + last) / 2 : topAt;
+        const speed = clamp(gap / Math.max(when, dt), slowest, fastest);
+        if (gap / speed <= last - 0.04) return { up, speed };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The first thing in the way within `dist` metres that the cat could stand on: how high its top is above
+   * the paws, how far away its face is, and whether the top is too narrow to walk on. For wood (a trunk, a
+   * fence) only the distance counts: that is climbed, not landed on. Null when the way is clear, or when what
+   * is there is no place to land (a house wall, a lamp post).
+   */
+  private perchAhead(fx: number, fz: number, dist: number): { rise: number; dist: number; narrow: boolean; wood: boolean } | null {
     const body = this.body;
     const feet = body.feetY;
     let near = dist;
@@ -488,7 +569,7 @@ export class Player {
     for (const side of [0, -0.07, 0.07]) {
       const ox = body.x - fz * side;
       const oz = body.z + fx * side;
-      for (const h of [0.32, 0.62, 0.95, 1.3]) {
+      for (const h of [0.3, 0.62, 0.95, 1.3]) {
         const hit = this.physics.rayHit(ox, feet + h, oz, fx, 0, fz, near);
         if (hit && Math.abs(hit.ny) < 0.6) {
           near = hit.toi;
@@ -497,22 +578,22 @@ export class Player {
         }
       }
     }
-    // wood is for the claws: the cat leaps at it and climbs
-    if (!found || wood) return 0;
+    if (!found) return null;
+    if (wood) return { rise: 0, dist: near, narrow: true, wood: true };
     // the top just behind that face; if that is a slope (a windscreen, the side of a car), a little further in
-    const from = feet + 1.85;
+    const from = feet + 2.05;
     for (const more of [0.1, 0.32, 0.56, 0.82, 1.1]) {
       const px = body.x + fx * (near + more);
       const pz = body.z + fz * (near + more);
-      if (this.physics.insideSolid(px, from, pz)) return 0; // taller than any cat jumps
-      const top = this.physics.groundBelow(px, from, pz, 1.85 - JUMP.step);
-      if (!top) return 0;
+      if (this.physics.insideSolid(px, from, pz)) return null; // taller than any cat jumps
+      const top = this.physics.groundBelow(px, from, pz, 2.05 - JUMP.step);
+      if (!top) return null;
       if (top.ny < 0.7) continue;
       const y = top.y + body.radius + 0.03;
       if (!this.physics.freeAt(px, y, pz, body.radius) || this.physics.insideSolid(px, top.y + 0.03, pz)) continue;
-      return top.y - feet;
+      return { rise: top.y - feet, dist: near, narrow: this.narrowAt(px, top.y, pz, fx, fz), wood: false };
     }
-    return 0;
+    return null;
   }
 
   private takeOff(speed: number, auto: boolean): void {
@@ -601,6 +682,8 @@ export class Player {
   private ledgeZ = 0;
   /** seconds left before a requested jump leaves the ground (0 = none pending) */
   private squat = 0;
+  /** the pace of a leap that is aimed at something, while it is in the air (null otherwise) */
+  private aimed: number | null = null;
   /** seconds left of the pause after scrambling up onto something narrow (see updateMantle) */
   private perchHold = 0;
   /** direction (unit, on the ground plane) of the wood the cat is braced against, if any */
