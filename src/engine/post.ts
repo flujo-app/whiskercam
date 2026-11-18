@@ -37,6 +37,8 @@ export interface LookSettings {
   nearBlur: number;
   /** smooth edges over time: how much of the past each frame keeps (0 = off, 0.9 = normal) */
   smoothing: number;
+  /** the dimmest scene average the exposure still follows; darker places stay dim */
+  darkest: number;
 }
 
 export const defaultLook: LookSettings = {
@@ -57,6 +59,7 @@ export const defaultLook: LookSettings = {
   focusNear: 0.17,
   nearBlur: 0.035,
   smoothing: 0.9,
+  darkest: 0.007,
 };
 
 /** Eight well-spread positions inside a pixel (Halton 2, 3): where the views are nudged to, frame after frame. */
@@ -176,6 +179,7 @@ export class Post {
       uPrev: { value: null },
       uBlendBrighter: { value: 1 },
       uBlendDarker: { value: 1 },
+      uDarkest: { value: 0.02 },
     });
     this.finishMat = pass(finishFragment, {
       uColor: { value: null },
@@ -399,6 +403,7 @@ export class Post {
     mu.uPrev.value = from.texture;
     mu.uBlendBrighter.value = this.meterReset ? 1 : 1 - Math.exp(-dt / Math.max(look.adaptBrighter, 1e-3));
     mu.uBlendDarker.value = this.meterReset ? 1 : 1 - Math.exp(-dt / Math.max(look.adaptDarker, 1e-3));
+    mu.uDarkest.value = look.darkest;
     this.draw(this.meterMat, to);
     this.meterIndex = 1 - this.meterIndex;
     this.meterReset = false;

@@ -17,8 +17,12 @@ export interface MatDesc {
   wear?: number;
   tint?: number[];
   alpha?: string;
+  /** which scanned surface this is (Poly Haven id), when it is one */
+  ph?: string;
   /** dissolve near the camera: [gone inside, solid beyond] in metres */
   fade?: [number, number];
+  /** how dirty sheltered spots get, 0..1 (built surfaces only; default 0.85) */
+  grime?: number;
 }
 
 /** Baked light for one chunk. */
@@ -241,6 +245,11 @@ export class Materials {
     if (d.fade) {
       defines.NEAR_FADE = 1;
       u.uFade = { value: new THREE.Vector2(d.fade[0], d.fade[1]) };
+    }
+    // built surfaces get grimy where they are sheltered (needs baked light; not for lawn and soil)
+    if (light && d.kind === 'tile' && !/grass|forrest|leaf|mud|dirt|chips|bark/.test(d.ph ?? '')) {
+      defines.GRIME = 1;
+      u.uGrime = { value: d.grime ?? 0.85 };
     }
 
     const mat = new THREE.ShaderMaterial({

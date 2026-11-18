@@ -272,6 +272,7 @@ uniform sampler2D uTex;       // small, already averaged picture of the scene
 uniform sampler2D uPrev;      // last frame's reading
 uniform float uBlendBrighter; // how fast to follow when the scene gets brighter (0 = never, 1 = at once)
 uniform float uBlendDarker;
+uniform float uDarkest;       // the dimmest average the exposure will still follow
 varying vec2 vUv;
 void main() {
   // first pass: the plain average, to know what counts as "deep shadow" in this picture
@@ -300,7 +301,9 @@ void main() {
       sum += log(max(l, max(mean * 0.07, 1e-4))) * w;
     }
   }
-  float now = exp(sum / wsum);
+  // a small camera can only open up so far: a really dark place (inside a hedge, under a car) stays dim
+  // instead of everything outside it burning out to white
+  float now = max(exp(sum / wsum), uDarkest);
   float prev = texture2D(uPrev, vec2(0.5)).r;
   float v = prev <= 0.0 ? now : mix(prev, now, now > prev ? uBlendBrighter : uBlendDarker);
   gl_FragColor = vec4(v, v, v, 1.0);

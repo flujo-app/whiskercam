@@ -29,11 +29,20 @@ node tools/shots.mjs estate                               test pictures from a h
 node tools/playtest.mjs estate                            a bot plays a whole round -> build/playtest/
 node tools/uitest.mjs estate                              clicks through every screen, desktop and phone size
 node tools/bench.mjs estate                               how long a frame really takes, at several spots
+node tools/roamtest.mjs estate                            sends the cat at every kerb, stair, pipe, car, tree, fence and hedge
+blender -b --factory-startup -P pipeline/blender/run.py -- export_collision   only what the cat bumps into (no bake)
 node tools/credits.mjs                                    rewrite CREDITS.md from what is used
 node tools/deploy.mjs                                     build and publish the live page
 ```
 
-The whole estate (build, bake, pack) takes about 35 minutes on an RTX 2070 Super with 8 GB.
+The whole estate (build, bake, pack) takes about an hour on an RTX 2070 Super with 8 GB.
+
+To try out a change to collision shapes without waiting for a bake: `build_estate`, then
+`export_collision`, then copy `build/export/estate/collision.*` to `public/assets/estate/` and run
+`node tools/roamtest.mjs estate`.
+
+The estate lists its own awkward spots for that test (`geo.poi(kind, x, y, nx, ny)` while building: kerbs,
+stairs, drainpipes, cars, trees, fences, hedges). Add one for anything new the cat could get stuck on.
 
 One-time setup for the pipeline (not needed to play or to work on the game code):
 
@@ -61,7 +70,7 @@ python -m venv build/pyenv && build/pyenv/Scripts/python -m pip install numpy xa
   | `wc_role` | `ground`, `kerb`, `wall`, `building`, `prop`, `vehicle`, `fence`, `foliage`, `scatter`, `decal`, `collider`, `far` | what it is (`far` = scenery beyond the walls: no baked light, lit by plain sun and sky) |
   | `wc_collide` | `mesh`, `none` | whether the cat bumps into it (`collider` objects are invisible helpers that only collide) |
   | `wc_lm` | number, default 1 | light-map detail: 1 near the ground, 0.3 for upper floors, 0.15 for roofs |
-  | `wc_surface` | material name | footstep sound for ground |
+  | `wc_surface` | material name, or `wood` / `metal` | footstep sound; `wood` can be climbed |
 
 * Keep triangle counts sensible: a parked car 15 to 25 thousand, a building 20 to 40 thousand,
   a small prop under 3 thousand.
