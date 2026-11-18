@@ -1,6 +1,6 @@
 // Measure how long a frame really takes (game step + drawing, waiting for the graphics card to finish).
 //
-//   node tools/bench.mjs [set] [WxH] ['[[x, z, heading], ...]']
+//   node tools/bench.mjs [set] [WxH] ['[[x, z, heading], ...]'] [extra page options, e.g. refl=0]
 //
 // Run it after anything that changes how the world is packed or drawn. It is how the slow path on
 // Windows was found (see src/engine/geometry.ts): frame time that does not change with the picture
@@ -25,7 +25,8 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
 page.on('pageerror', (e) => console.log('pageerror: ' + e.message));
-await page.goto(`${server.resolvedUrls.local[0]}?set=${set}&manual=1&size=${size}`);
+const extra = process.argv[5] ? `&${process.argv[5]}` : '';
+await page.goto(`${server.resolvedUrls.local[0]}?set=${set}&manual=1&size=${size}${extra}`);
 await page.waitForFunction(() => window.__wc !== undefined, null, { timeout: 180000 });
 let worst = 0;
 for (const [x, z, h] of spots) {

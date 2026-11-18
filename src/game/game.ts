@@ -6,6 +6,8 @@ import { LensRig } from '../engine/lens';
 import { Physics } from '../engine/physics';
 import { Post } from '../engine/post';
 import { Recorder } from '../engine/recorder';
+import { planReflections, Reflections, STILL_LAYER, type GlassWall, type Probe } from '../engine/reflections';
+
 import { LiveShadows } from '../engine/shadows';
 import { Sky } from '../engine/sky';
 import { loadWorld, type LoadedWorld } from '../engine/world';
@@ -28,6 +30,8 @@ export interface GameOptions {
   manual: boolean;
   /** phones and other small devices: less grass, fewer fur layers, plants drawn less far */
   lean?: boolean;
+  /** real reflections: 0 = shiny things mirror the sky only, 1 = cars and walls, 2 = and kept up to date near the cat (default by device) */
+  reflections?: number;
   /** samples per pixel for edge smoothing (default 4, 0 on phones) */
   msaa?: number;
   /** size of surface and light pictures: 1 = full, 0.5 = half the width and height (default by device) */
@@ -46,6 +50,10 @@ export class Game {
   physics!: Physics;
   player!: Player;
   shadows!: LiveShadows;
+  /** the all-round pictures that shiny things look their reflections up in (null where the device goes without) */
+  reflections: Reflections | null = null;
+  private glassWalls: GlassWall[] = [];
+  private readonly eye = new THREE.Vector3();
   grass: Grass | null = null;
   props!: Props;
   pigeons!: Pigeons;
@@ -142,12 +150,38 @@ export class Game {
     }
     game.newSession();
     game.setPlayerCoat('ginger');
+    // real reflections on cars and windows
+    const level = opts.reflections ?? (opts.lean ? 0 : 2);
+    if (level > 0) {
+      const refl = new Reflections(renderer, game.scene, game.world.materials.globals, sky);
+      const plan = planReflections(game.world, game.physics, refl, level > 1 ? 256 : 128, level > 1 ? 128 : 64);
+      sky.mesh.layers.enable(STILL_LAYER);
+      for (const p of game.props.items) Reflections.moving(p.group);
+      if (game.playerCat) Reflections.moving(game.playerCat.root);
+      Reflections.moving(game.session.brother.visual.root);
+      for (const r of game.session.rivals) Reflections.moving(r.npc.visual.root);
+      game.glassWalls = level > 1 ? plan.glassWalls : [];
+      refl.before = (x, z, live) => {
+        game.world.cull(x, z, 30);
+        if (game.grass && !live) game.grass.mesh.visible = false;
+      };
+      refl.after = () => {
+        if (game.grass) game.grass.mesh.visible = true;
+      };
+      refl.prioritise(sx, sz);
+      game.reflections = refl;
+      game.reflectLevel = level;
+      // in tests every picture is taken before the first frame; in play they come in over the first second or two
+      if (opts.manual) refl.work(1e9);
+      console.info(`reflections: ${plan.cars} cars, ${plan.walls} walls, ${plan.meshes} shiny parts`);
+    }
     // pigeons: on the square, by the bike racks, in front of the gate (they move on when scared off)
     const spots = (game.world.info.pigeons ?? [[10.5, 2.5], [33, -27], [-44, -1.5]]).map(([x, z]): [number, number, number] => {
       const ground = game.physics.groundBelow(x, 3, z, 6);
       return [x, ground ? ground.y : 0, z];
     });
     game.pigeons = new Pigeons(game.scene, game.world.materials, game.world.groundLight, spots);
+    if (game.reflections) for (const bird of game.pigeons.roots) Reflections.moving(bird);
     game.pigeons.onScatter = (x, z) => {
       if (!game.session.active) return;
       game.session.score.add('pigeons');
@@ -167,6 +201,10 @@ export class Game {
       for (const r of this.session.rivals) this.scene.remove(r.npc.visual.root);
     }
     this.session = new Session(this.player, this.physics, nav, this.props, this.world.groundLight, this.catFactory, this.scene, brother, (info.rivals ?? []) as RivalInfo[]);
+    if (this.reflections) {
+      Reflections.moving(this.session.brother.visual.root);
+      for (const r of this.session.rivals) Reflections.moving(r.npc.visual.root);
+    }
   }
 
   /** Take over the player's choices (called at start and whenever a setting changes). */
@@ -181,6 +219,8 @@ export class Game {
     }
     this.input.mouseSensitivity = 0.11 * s.sensitivity;
     this.input.touchSensitivity = 0.28 * s.sensitivity;
+    // "Faster" keeps the reflections but stops redrawing them while playing
+    if (this.reflections && this.opts.reflections === undefined) this.reflectLevel = s.quality === 0 ? 1 : 2;
     this.player.motion = s.motion;
     // a steadier camera also smears less when it turns
     this.post.look.shutter = (0.6 + 0.4 * s.motion) / 60;
@@ -223,6 +263,7 @@ export class Game {
     this.playerCat = this.catFactory(coat, 'player');
     this.playerCat.setOwn?.(true);
     this.scene.add(this.playerCat.root);
+    if (this.reflections) Reflections.moving(this.playerCat.root);
   }
 
   /** The picture is always upright (9:16 at most), like the phone clip it imitates. */
@@ -245,6 +286,53 @@ export class Game {
     this.canvas.style.height = `${h}px`;
     this.renderer.setSize(pw, ph, false);
     this.post.setSize(pw, ph, this.opts.quality * this.governor);
+  }
+
+  private reflectLevel = 0;
+  private followed: Probe | null = null;
+
+  /** Keep the reflections near the cat up to date: the nearest car's picture, and the glass wall it is in front of. */
+  private updateReflections(): void {
+    const refl = this.reflections;
+    if (!refl) return;
+    // pictures still owed from loading: a few views per frame (each probe needs six); fewer once a run is on
+    refl.work(this.opts.manual ? 1e9 : this.session.active ? 2 : 8);
+    if (this.reflectLevel < 2) {
+      if (this.followed) {
+        this.followed = null;
+        refl.follow(null);
+      }
+      refl.setMirror(null);
+      return;
+    }
+    const eye = this.eye.copy(this.rig.rig.position);
+    // the car next to the cat: the cats and everything else that moves are drawn into its picture again
+    const near = refl.nearest(eye.x, eye.y, eye.z, 'car', 6);
+    const cur = this.followed;
+    // (stay with the one we have until another is clearly nearer, so two cars do not take turns)
+    const curAway = cur ? refl.distance(cur, eye.x, eye.y, eye.z) : 1e9;
+    if (near !== cur && (curAway > 7.5 || (near && refl.distance(near, eye.x, eye.y, eye.z) < curAway - 0.8))) {
+      this.followed = near;
+      refl.follow(near);
+    }
+    refl.tick(2);
+    // the glass wall the lens is in front of and turned towards: a true mirror image
+    let best: GlassWall | null = null;
+    let bestAway = 3.6;
+    const h = THREE.MathUtils.degToRad(this.freeCam ? this.freeCam.heading : this.player.camHeading);
+    const fx = Math.sin(h);
+    const fz = -Math.cos(h);
+    for (const w of this.glassWalls) {
+      const away = eye.x * w.nx + eye.z * w.nz - w.offset;
+      if (away < 0.06 || away >= bestAway) continue;
+      if (fx * w.nx + fz * w.nz > 0.35) continue; // turned away from it
+      const t = eye.z * w.nx - eye.x * w.nz;
+      if (t < w.t0 - 1.5 - away || t > w.t1 + 1.5 + away || eye.y > w.y1 + 2) continue;
+      best = w;
+      bestAway = away;
+    }
+    // (it comes in gently as the cat walks up, so the looked-up reflection does not jump to the true one)
+    refl.setMirror(best ? eye : null, best, (3.6 - bestAway) / 0.9);
   }
 
   /** One fixed step of the world. */
@@ -298,8 +386,10 @@ export class Game {
       }
     }
     this.grass?.update(this.rig.rig.position);
-    this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z, this.opts.lean ? 27 : 38);
     this.renderer.info.reset();
+    this.rig.update();
+    this.updateReflections();
+    this.world.cull(this.rig.rig.position.x, this.rig.rig.position.z, this.opts.lean ? 27 : 38);
     this.shadows.render(this.renderer, this.scene, this.focus);
     this.post.render(this.scene, dt);
   }

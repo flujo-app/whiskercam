@@ -27,6 +27,11 @@ export class Pigeons {
   /** called once when the flock takes off: (x, z) of the flock */
   onScatter: ((x: number, z: number) => void) | null = null;
   private readonly birds: Bird[] = [];
+
+  /** every bird's own object in the scene */
+  get roots(): THREE.Object3D[] {
+    return this.birds.map((b) => b.group);
+  }
   private readonly mat: THREE.ShaderMaterial;
   private readonly sample: GroundSample = { r: 0, g: 0, b: 0, sun: 1 };
   private home = { x: 0, z: 0 };

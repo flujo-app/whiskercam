@@ -16,6 +16,7 @@ export class Sky {
         uSkyRange: { value: 1 },
         uSunDir: globals.uSunDir,
         uSunColor: globals.uSunColor,
+        uSunDisc: { value: 1 },
       },
       side: THREE.BackSide,
       depthWrite: false,
@@ -24,6 +25,11 @@ export class Sky {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 1; // after the solid world, so hidden sky pixels are skipped
     this.mesh.name = 'sky';
+  }
+
+  /** Draw the sun's disc or leave it out (the pictures reflections are looked up in go without). */
+  set sunDisc(on: boolean) {
+    (this.mesh.material as THREE.ShaderMaterial).uniforms.uSunDisc.value = on ? 1 : 0;
   }
 
   /** `url` is the sqrt-encoded equirect sky picture, `range` its brightness scale. */
